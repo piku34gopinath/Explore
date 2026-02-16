@@ -1,0 +1,513 @@
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
+from sqlalchemy import func
+import os
+
+from . import models, schemas, crud, database, tasks
+from .database import engine
+
+app = FastAPI(title="AI Video Clipper")
+
+# Mount static files for clips
+# Ensure directory exists first or use check=False
+os.makedirs("data/clips", exist_ok=True)
+app.mount("/static", StaticFiles(directory="data/clips"), name="static")
+
+# CORS setup
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex="https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
+
+from fastapi import Request
+from starlette.middleware.sessions import SessionMiddleware
+import secrets
+# In production, use a secure random string from env
+SECRET_KEY = os.getenv("SESSION_SECRET", "super-secret-dev-key") 
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+from . import models, schemas, crud, database
+from .database import engine, get_db, AsyncSessionLocal
+from sqlalchemy.future import select
+from .services import downloader, transcriber, analyzer
+from sqlalchemy.exc import IntegrityError
+from fastapi.responses import JSONResponse
+
+# Unified Auth Helpers
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    
+    # In a real app, you might want to cache this or just fetch needed fields
+    result = await db.execute(select(models.User).filter(models.User.id == user_id))
+    user = result.scalars().first()
+    return user
+
+# ... earlier code ...
+
+@app.post("/settings/ai/verify")
+async def verify_ai_key(request: schemas.KeyVerificationRequest):
+    success, message = analyzer.verify_key(request.provider, request.api_key)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    # Return real models for the provider
+    models_list = analyzer.get_available_models(request.provider, request.api_key)
+    return {"status": "success", "available_models": models_list}
+
+@app.post("/settings/ai/save")
+async def save_ai_config(config: schemas.AIConfigCreate, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    
+    # Deactivate other configs for this user
+    # Note: This requires a synchronous session or a different approach for async
+    # For now, assuming get_db provides a synchronous session or adapting for async
+    # If get_db is truly async, this part needs adjustment (e.g., using execute and ORM update)
+    # Example for async:
+    # await db.execute(update(models.AIConfig).where(models.AIConfig.user_id == user_id).values(is_active=False))
+    # For this example, I'll assume a synchronous session for simplicity as per the instruction's `db.query`
+    # If `get_db` returns AsyncSession, `db.query` and `db.commit()` will not work directly.
+    # The instruction uses `db: Session = Depends(get_db)` which implies a synchronous session.
+    # Given the existing `db: AsyncSession = Depends(database.get_db)` in other endpoints,
+    # I will adapt this to use async operations.
+    
+    # Deactivate other configs for this user (async adapted)
+    await crud.deactivate_user_ai_configs(db, user_id=user_id)
+    
+    new_config = models.AIConfig(
+        user_id=user_id,
+        provider=config.provider,
+        api_key=config.api_key,
+        selected_model=config.selected_model,
+        is_active=True
+    )
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    return new_config
+
+@app.get("/settings/ai", response_model=List[schemas.AIConfigResponse])
+async def get_ai_configs(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    return await crud.get_user_ai_configs(db, user_id=user_id)
+
+@app.post("/settings/ai/{config_id}/activate", response_model=schemas.AIConfigResponse)
+async def activate_ai_config(config_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    config = await crud.activate_user_ai_config(db, user_id=user_id, config_id=config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return config
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request, exc):
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": "Database integrity error. This might be due to an invalid ID (e.g. user_id)."},
+    )
+
+# Startup event to create tables (dev only)
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
+    
+    # Sync Google credentials to DB if they exist in env
+    async with AsyncSessionLocal() as db:
+        client_id = os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        
+        if client_id:
+            await crud.set_system_config(db, "google_client_id", client_id)
+            print(f"Synced GOOGLE_CLIENT_ID from env to DB")
+        
+        if client_secret:
+            await crud.set_system_config(db, "google_client_secret", client_secret)
+            print(f"Synced GOOGLE_CLIENT_SECRET from env to DB")
+
+@app.get("/")
+async def root():
+    return {"message": "AI Video Clipper API is running"}
+
+@app.post("/users/", response_model=schemas.User)
+async def create_user(user: schemas.UserCreate, db: AsyncSession = Depends(database.get_db)):
+    db_user = await crud.get_user_by_email(db, email=user.email)
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return await crud.create_user(db=db, user=user)
+
+@app.post("/videos/submit", response_model=schemas.VideoSource)
+async def submit_video(video: schemas.VideoSourceCreate, db: AsyncSession = Depends(database.get_db)):
+    # Create video entry in DB
+    db_video = await crud.create_video_source(db=db, video=video)
+    
+    # Trigger Celery task
+    tasks.process_video_task.delay(db_video.id, db_video.original_url)
+    
+    return db_video
+
+@app.get("/videos/{video_id}", response_model=schemas.VideoSource)
+async def get_video_status(video_id: int, db: AsyncSession = Depends(database.get_db)):
+    db_video = await crud.get_video(db, video_id=video_id)
+    if db_video is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return db_video
+
+@app.get("/users/{user_id}/videos", response_model=List[schemas.VideoSource])
+async def get_user_videos(user_id: int, db: AsyncSession = Depends(get_db)):
+    videos = await crud.get_user_videos(db, user_id=user_id)
+    return videos
+
+@app.get("/download/{filename}")
+async def download_clip(filename: str):
+    """Download endpoint that forces file download with proper headers"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    file_path = f"/app/data/clips/{filename}"
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Return with Content-Disposition header to force download
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+# Clip Suggestion Endpoints
+@app.post("/videos/{video_id}/suggestions/{suggestion_id}/approve")
+async def approve_suggestion(video_id: int, suggestion_id: int, db: AsyncSession = Depends(database.get_db)):
+    """Approve a clip suggestion to be generated"""
+    from sqlalchemy import update
+    
+    await db.execute(
+        update(models.ClipSuggestion)
+        .where(models.ClipSuggestion.id == suggestion_id, models.ClipSuggestion.video_source_id == video_id)
+        .values(status="approved")
+    )
+    await db.commit()
+    return {"status": "approved"}
+
+@app.post("/videos/{video_id}/suggestions/{suggestion_id}/reject")
+async def reject_suggestion(video_id: int, suggestion_id: int, db: AsyncSession = Depends(database.get_db)):
+    """Reject a clip suggestion"""
+    from sqlalchemy import update
+    
+    await db.execute(
+        update(models.ClipSuggestion)
+        .where(models.ClipSuggestion.id == suggestion_id, models.ClipSuggestion.video_source_id == video_id)
+        .values(status="rejected")
+    )
+    await db.commit()
+    return {"status": "rejected"}
+
+@app.post("/videos/{video_id}/regenerate-suggestions")
+async def regenerate_suggestions(video_id: int, db: AsyncSession = Depends(database.get_db)):
+    """Regenerate clip suggestions for a video using AI"""
+    # Trigger re-analysis task
+    video = await crud.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Delete old suggestions
+    from sqlalchemy import delete
+    await db.execute(
+        delete(models.ClipSuggestion).where(models.ClipSuggestion.video_source_id == video_id)
+    )
+    await db.commit()
+    
+    # Trigger analysis task again
+    tasks.process_video_task.delay(video_id, video.original_url)
+    
+    return {"status": "regenerating"}
+
+@app.post("/settings/system")
+async def set_system_config_route(config: schemas.SystemConfig, db: AsyncSession = Depends(get_db)):
+    await crud.set_system_config(db, config.key, config.value)
+    return {"status": "success"}
+
+@app.get("/settings/system/{key}")
+async def get_system_config_route(key: str, db: AsyncSession = Depends(get_db)):
+    value = await crud.get_system_config(db, key)
+    # Return empty string if not found to separate from 404 error
+    return {"key": key, "value": value if value else ""}
+
+# YouTube Integration Endpoints
+from .services.youtube import YouTubeService
+
+youtube_service = YouTubeService()
+
+@app.get("/auth/youtube/url", response_model=schemas.YouTubeAuthResponse)
+async def get_youtube_auth_url(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    client_id = await crud.get_system_config(db, "google_client_id")
+    client_secret = await crud.get_system_config(db, "google_client_secret")
+
+    url, error = youtube_service.get_auth_url(client_id=client_id, client_secret=client_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return {"auth_url": url}
+
+@app.post("/auth/youtube/callback")
+async def youtube_auth_callback(code: str, db: AsyncSession = Depends(get_db)):
+    user_id = 1 # Hardcoded for MVP
+    
+    client_id = await crud.get_system_config(db, "google_client_id")
+    client_secret = await crud.get_system_config(db, "google_client_secret")
+
+    token_data, channel_info, user_info = youtube_service.exchange_code_for_token(code, client_id=client_id, client_secret=client_secret)
+    if not token_data:
+        raise HTTPException(status_code=400, detail="Failed to exchange code for token: " + str(channel_info))
+        
+    await crud.save_youtube_config(db, user_id, token_data, channel_info)
+    return {"status": "connected", "channel": channel_info.get('title')}
+
+@app.get("/auth/youtube/status")
+async def get_youtube_status(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Get all connected YouTube accounts for the current user"""
+    user_id = current_user.id if current_user else 1
+    configs = await crud.get_all_youtube_configs(db, user_id)
+    
+    if not configs:
+        return {"is_connected": False, "accounts": []}
+    
+    accounts = []
+    for config in configs:
+        accounts.append({
+            "id": config.id,
+            "is_connected": True,
+            "channel_name": config.channel_name,
+            "channel_id": config.channel_id,
+            "channel_thumbnail": config.channel_thumbnail,
+            "subscriber_count": config.subscriber_count,
+            "video_count": config.video_count,
+            "is_primary": config.is_primary
+        })
+    
+    # Return both list and backward-compatible single account info
+    primary = next((acc for acc in accounts if acc["is_primary"]), accounts[0] if accounts else None)
+    
+    return {
+        "is_connected": True,
+        "accounts": accounts,
+        # Backward compatibility - return primary account data at root level
+        "channel_name": primary["channel_name"] if primary else None,
+        "channel_thumbnail": primary["channel_thumbnail"] if primary else None,
+        "subscriber_count": primary["subscriber_count"] if primary else None,
+        "video_count": primary["video_count"] if primary else None
+    }
+
+@app.post("/auth/youtube/disconnect")
+async def disconnect_youtube(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Disconnect all YouTube accounts (legacy)"""
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_youtube_config(db, user_id, config_id=None)
+    return {"status": "disconnected"}
+
+@app.delete("/auth/youtube/accounts/{account_id}")
+async def disconnect_youtube_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Disconnect a specific YouTube account"""
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_youtube_config(db, user_id, config_id=account_id)
+    return {"status": "disconnected", "account_id": account_id}
+
+
+@app.post("/auth/youtube/accounts/{account_id}/set-primary")
+async def set_primary_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Set a specific account as the primary account for uploads"""
+    user_id = current_user.id if current_user else 1
+    config = await crud.set_primary_youtube_account(db, user_id, account_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"status": "success", "account_id": account_id, "is_primary": True}
+
+
+# Unified Auth Endpoints
+# Auth Logic continued...
+
+@app.get("/auth/login")
+async def login(db: AsyncSession = Depends(get_db)):
+    """Redirects user to Google OAuth URL"""
+    # Use dynamic credentials from DB if available, else env
+    client_id = await crud.get_system_config(db, "google_client_id")
+    client_secret = await crud.get_system_config(db, "google_client_secret")
+    
+    # Redirect to frontend callback for consistency or handle here?
+    # The plan was: Frontend -> /auth/login -> Google -> Frontend Callback -> Backend Callback
+    # But /auth/login is a GET endpoint that can directly return the URL
+    
+    url, error = youtube_service.get_auth_url(client_id=client_id, client_secret=client_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+        
+    return {"auth_url": url}
+
+@app.post("/auth/callback")
+async def auth_callback(request: Request, code: str, db: AsyncSession = Depends(get_db)):
+    """Unified Callback: Handles Google Login + YouTube Config"""
+    
+    client_id = await crud.get_system_config(db, "google_client_id")
+    client_secret = await crud.get_system_config(db, "google_client_secret")
+
+    # Exchange code for tokens and info
+    # Note: youtube_service was updated to return user_info as 3rd tuple element
+    try:
+        token_data, channel_info, user_info = youtube_service.exchange_code_for_token(code, client_id=client_id, client_secret=client_secret)
+    except ValueError as e: # Handle case where user_info isn't returned if service wasn't updated correctly in memory modules
+         raise HTTPException(status_code=500, detail="Backend service mismatch. Please restart server.")
+
+    if not token_data:
+        raise HTTPException(status_code=400, detail=f"Failed to exchange code: {channel_info}")
+
+    # 1. Extract User Info
+    email = user_info.get('email')
+    full_name = user_info.get('name')
+    avatar_url = user_info.get('picture')
+    google_id = user_info.get('id')
+    
+    if not email:
+         raise HTTPException(status_code=400, detail="No email provided by Google")
+
+    # 2. Determine User
+    session_user_id = request.session.get("user_id")
+    if session_user_id:
+        # If already logged in, link to current user
+        user = await crud.get_user_by_id(db, session_user_id)
+        if not user:
+             # Fallback if session is invalid for some reason
+             user = await crud.create_or_update_user(db, email, full_name, avatar_url, google_id)
+    else:
+        # Initial login
+        user = await crud.create_or_update_user(db, email, full_name, avatar_url, google_id)
+    
+    # 3. Save YouTube Config
+    await crud.save_youtube_config(db, user.id, token_data, channel_info)
+    
+    # 3. Set Session
+    request.session["user_id"] = user.id
+    
+    return {
+        "status": "success",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "avatar_url": user.avatar_url
+        },
+        "channel": channel_info.get('title')
+    }
+
+@app.get("/auth/me")
+async def get_current_user_endpoint(user: models.User = Depends(get_current_user)):
+    if not user:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "user": user
+    }
+
+@app.post("/auth/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return {"status": "logged_out"}
+
+@app.post("/upload/youtube")
+async def upload_to_youtube(request: schemas.YouTubeUploadRequest, account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    # Use current user if available, fallback to user 1 for MVP consistency 
+    user_id = current_user.id if current_user else 1
+    
+    # Get Config - either specific account or primary
+    if account_id:
+        config = await crud.get_youtube_config_by_id(db, user_id, account_id)
+        if not config:
+            raise HTTPException(status_code=400, detail=f"YouTube account with ID {account_id} not found or not accessible.")
+    else:
+        config = await crud.get_youtube_config(db, user_id)
+    
+    if not config:
+         raise HTTPException(status_code=400, detail="YouTube account not connected. Please go to Settings and connect your YouTube account, or Sign Out and Sign In again.")
+    
+    # Get Clip
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == request.video_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    # Prepare Token Data
+    token_data = {
+        'access_token': config.access_token,
+        'refresh_token': config.refresh_token,
+        'expiry': config.token_expiry
+    }
+    
+    # Upload
+    response, error = youtube_service.upload_video(
+        token_data, 
+        clip.file_path, 
+        request.title, 
+        request.description, 
+        request.tags.split(',') if request.tags else [],
+        privacy_status=request.privacy_status
+    )
+    
+    if error:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {error}")
+    
+    # Update clip with YouTube upload info
+    youtube_id = response.get('id')
+    clip.youtube_id = youtube_id
+    clip.uploaded_to_channel = config.channel_name
+    clip.uploaded_at = func.now()
+    await db.commit()
+        
+    return {"status": "success", "youtube_id": youtube_id, "channel": config.channel_name}
+
+@app.delete("/clips/{clip_id}")
+async def delete_clip(clip_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Delete a generated clip"""
+    user_id = current_user.id if current_user else 1
+    
+    # Get the clip
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == clip_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    
+    # Optional: Verify user owns this clip via video_source relationship
+    # For now, we'll allow any authenticated user to delete for MVP
+    
+    # Delete the clip from database explicitly
+    from sqlalchemy import delete
+    await db.execute(delete(models.GeneratedClip).where(models.GeneratedClip.id == clip_id))
+    await db.commit()
+    
+    # Optional: Delete the actual file from filesystem
+    import os
+    if os.path.exists(clip.file_path):
+        try:
+            os.remove(clip.file_path)
+        except Exception as e:
+            print(f"Failed to delete file {clip.file_path}: {e}")
+    
+    return {"status": "deleted", "clip_id": clip_id}

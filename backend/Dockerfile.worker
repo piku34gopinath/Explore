@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install FFmpeg for video processing
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    imagemagick \
+    && rm -rf /var/lib/apt/lists/*
+
+# Fix ImageMagick security policy for MoviePy
+RUN find /etc/ImageMagick* -name "policy.xml" -exec sed -i 's/<policy domain="path" rights="none" pattern="@\*"\/>/<policy domain="path" rights="read|write" pattern="@*"\/>/g' {} +
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info"]
