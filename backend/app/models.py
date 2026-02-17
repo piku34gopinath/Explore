@@ -119,6 +119,64 @@ class YouTubeConfig(Base):
 
     user = relationship("User")
 
+class InstagramConfig(Base):
+    __tablename__ = "instagram_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    access_token = Column(String)
+    refresh_token = Column(String, nullable=True)
+    token_expiry = Column(DateTime(timezone=True), nullable=True)
+    username = Column(String)
+    instagram_id = Column(String)
+    profile_picture = Column(String, nullable=True)
+    follower_count = Column(Integer, nullable=True)
+    is_connected = Column(Boolean, default=False)
+    is_primary = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+
+class FacebookConfig(Base):
+    __tablename__ = "facebook_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    access_token = Column(String)
+    page_access_token = Column(String, nullable=True)
+    token_expiry = Column(DateTime(timezone=True), nullable=True)
+    page_name = Column(String)
+    page_id = Column(String)
+    page_thumbnail = Column(String, nullable=True)
+    fan_count = Column(Integer, nullable=True)
+    is_connected = Column(Boolean, default=False)
+    is_primary = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+
+class XConfig(Base):
+    __tablename__ = "x_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    access_token = Column(String)
+    refresh_token = Column(String, nullable=True)
+    token_expiry = Column(DateTime(timezone=True), nullable=True)
+    username = Column(String)
+    user_id_str = Column(String)
+    profile_image_url = Column(String, nullable=True)
+    follower_count = Column(Integer, nullable=True)
+    is_connected = Column(Boolean, default=False)
+    is_primary = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+
+
 class SystemConfig(Base):
     __tablename__ = "system_configs"
 

@@ -18,6 +18,8 @@ SCOPES = [
 # Redirect URI (must match Google Cloud Console)
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3000/auth/callback")
 
+from ..security import decrypt_token
+
 class YouTubeService:
     def __init__(self):
         # In production, use environment variables or a secure vault
@@ -115,30 +117,51 @@ class YouTubeService:
             print(f"Error exchanging code: {str(e)}")
             return None, str(e), None
 
-    def get_authenticated_service(self, token_data):
-        """Builds an authenticated YouTube service object."""
+    def get_authenticated_service(self, config_model):
+        """Builds an authenticated YouTube service object with decryption and refresh support."""
         try:
-            # Reconstruct credentials
+            # Decrypt tokens
+            access_token = decrypt_token(config_model.access_token)
+            refresh_token = decrypt_token(config_model.refresh_token)
+            
             credentials = Credentials(
-                token=token_data['access_token'],
-                refresh_token=token_data['refresh_token'],
+                token=access_token,
+                refresh_token=refresh_token,
                 token_uri="https://oauth2.googleapis.com/token",
-                client_id=os.getenv("GOOGLE_CLIENT_ID"), # Ideally from stored config or env
+                client_id=os.getenv("GOOGLE_CLIENT_ID"),
                 client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
                 scopes=SCOPES
             )
             
-            return build('youtube', 'v3', credentials=credentials)
+            # Check if token is expired and refresh if necessary
+            import google.auth.transport.requests
+            from google.auth.transport.requests import Request as GoogleRequest
+            
+            if credentials.expired or (credentials.expiry and credentials.expiry < datetime.utcnow()):
+                print("YouTube token expired, refreshing...")
+                credentials.refresh(GoogleRequest())
+                # Note: In a real app, you should save the new access token back to the DB here
+                # For now, we'll return the service and handle persistence separately or via a hook
+            
+            return build('youtube', 'v3', credentials=credentials), credentials
         except Exception as e:
             print(f"Error building service: {str(e)}")
-            return None
+            return None, None
 
-    def upload_video(self, token_data, file_path, title, description, tags, category_id="22", privacy_status="private"):
-        """Uploads a video to YouTube."""
+    async def upload_video(self, config_model, file_path, title, description, tags, category_id="22", privacy_status="private", db=None):
+        """Uploads a video to YouTube using the secure config model."""
         try:
-            service = self.get_authenticated_service(token_data)
+            service, credentials = self.get_authenticated_service(config_model)
             if not service:
                 return None, "Failed to authenticate with YouTube"
+
+            # If tokens were refreshed, save them back to DB
+            if credentials.expired or (credentials.expiry and credentials.expiry < datetime.utcnow()):
+                 if db and config_model:
+                     from ..security import encrypt_token
+                     config_model.access_token = encrypt_token(credentials.token)
+                     config_model.token_expiry = credentials.expiry
+                     await db.commit()
 
             body = {
                 'snippet': {

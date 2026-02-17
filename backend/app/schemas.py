@@ -103,6 +103,24 @@ class YouTubeConfigResponse(BaseModel):
     video_count: Optional[int] = None
     is_connected: bool
 
+class InstagramConfigResponse(BaseModel):
+    username: Optional[str] = None
+    profile_picture: Optional[str] = None
+    follower_count: Optional[int] = None
+    is_connected: bool
+
+class FacebookConfigResponse(BaseModel):
+    page_name: Optional[str] = None
+    page_thumbnail: Optional[str] = None
+    fan_count: Optional[int] = None
+    is_connected: bool
+
+class XConfigResponse(BaseModel):
+    username: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    follower_count: Optional[int] = None
+    is_connected: bool
+
 class YouTubeUploadRequest(BaseModel):
     video_id: int
     title: str

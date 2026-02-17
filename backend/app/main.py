@@ -39,9 +39,15 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 from . import models, schemas, crud, database
 from .database import engine, get_db, AsyncSessionLocal
 from sqlalchemy.future import select
-from .services import downloader, transcriber, analyzer
+from .services import downloader, transcriber, analyzer, meta, x
+from .services.meta import MetaService
+from .services.x import XService
 from sqlalchemy.exc import IntegrityError
 from fastapi.responses import JSONResponse
+
+# Initialize Services
+meta_service = MetaService()
+x_service = XService()
 
 # Unified Auth Helpers
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
@@ -135,6 +141,24 @@ async def startup():
         if client_secret:
             await crud.set_system_config(db, "google_client_secret", client_secret)
             print(f"Synced GOOGLE_CLIENT_SECRET from env to DB")
+
+        # Instagram
+        ig_id = os.getenv("INSTAGRAM_CLIENT_ID")
+        ig_secret = os.getenv("INSTAGRAM_CLIENT_SECRET")
+        if ig_id: await crud.set_system_config(db, "instagram_client_id", ig_id)
+        if ig_secret: await crud.set_system_config(db, "instagram_client_secret", ig_secret)
+        
+        # Facebook
+        fb_id = os.getenv("FACEBOOK_CLIENT_ID")
+        fb_secret = os.getenv("FACEBOOK_CLIENT_SECRET")
+        if fb_id: await crud.set_system_config(db, "facebook_client_id", fb_id)
+        if fb_secret: await crud.set_system_config(db, "facebook_client_secret", fb_secret)
+
+        # X
+        x_id = os.getenv("X_CLIENT_ID")
+        x_secret = os.getenv("X_CLIENT_SECRET")
+        if x_id: await crud.set_system_config(db, "x_client_id", x_id)
+        if x_secret: await crud.set_system_config(db, "x_client_secret", x_secret)
 
 @app.get("/")
 async def root():
@@ -339,6 +363,193 @@ async def set_primary_account(account_id: int, db: AsyncSession = Depends(get_db
     return {"status": "success", "account_id": account_id, "is_primary": True}
 
 
+    return {"status": "success", "account_id": account_id, "is_primary": True}
+
+
+# Instagram Integration Endpoints
+@app.get("/auth/instagram/url")
+async def get_instagram_auth_url(db: AsyncSession = Depends(get_db)):
+    redirect_uri = "http://localhost:3000/auth/instagram/callback"
+    
+    # Try to get credentials from DB first
+    client_id = await crud.get_system_config(db, "instagram_client_id")
+    
+    url = meta_service.get_instagram_auth_url(redirect_uri, client_id=client_id)
+    if not url:
+        raise HTTPException(
+            status_code=400, 
+            detail="Instagram Client ID is missing or invalid. Please configure it in Settings > Platform Configuration."
+        )
+    return {"auth_url": url}
+
+@app.post("/auth/instagram/callback")
+async def instagram_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    redirect_uri = "http://localhost:3000/auth/instagram/callback"
+    
+    if code == "mock_code_123":
+        token_data = {"access_token": "mock_meta_token", "refresh_token": "mock_meta_refresh"}
+        profile_info = {"id": "mock_meta_id", "username": "meta_user", "follower_count": 1000}
+    else:
+        # Get credentials from DB
+        client_id = await crud.get_system_config(db, "instagram_client_id")
+        client_secret = await crud.get_system_config(db, "instagram_client_secret")
+        
+        token_data, error = meta_service.exchange_instagram_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        profile_info = {
+            "id": token_data["user_id"],
+            "username": token_data["username"],
+            "follower_count": token_data["follower_count"]
+        }
+        
+    await crud.save_instagram_config(db, user_id, token_data, profile_info)
+    return {"status": "connected", "username": profile_info["username"]}
+
+@app.get("/auth/instagram/status")
+async def get_instagram_status(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    configs = await crud.get_all_instagram_configs(db, user_id)
+    return {"is_connected": len(configs) > 0, "accounts": configs}
+
+@app.delete("/auth/instagram/accounts/{account_id}")
+async def disconnect_instagram_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_instagram_config(db, user_id, account_id)
+    return {"status": "disconnected"}
+
+@app.post("/auth/instagram/accounts/{account_id}/set-primary")
+async def set_primary_instagram_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.set_primary_instagram_account(db, user_id, account_id)
+    return {"status": "success"}
+
+# Facebook Integration Endpoints
+@app.get("/auth/facebook/url")
+async def get_facebook_auth_url(db: AsyncSession = Depends(get_db)):
+    redirect_uri = "http://localhost:3000/auth/facebook/callback"
+    
+    # Try to get credentials from DB first
+    client_id = await crud.get_system_config(db, "facebook_client_id")
+    
+    url = meta_service.get_facebook_auth_url(redirect_uri, client_id=client_id)
+    if not url:
+        raise HTTPException(
+            status_code=400, 
+            detail="Facebook Client ID is missing or invalid. Please configure it in Settings > Platform Configuration."
+        )
+    return {"auth_url": url}
+
+@app.post("/auth/facebook/callback")
+async def facebook_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    redirect_uri = "http://localhost:3000/auth/facebook/callback"
+    
+    if code == "mock_code_123":
+        token_data = {"access_token": "mock_meta_token", "page_access_token": "mock_meta_page_token"}
+        page_info = {"id": "mock_meta_id", "name": "meta_user Page", "fan_count": 1000, "thumbnail": "https://api.dicebear.com/7.x/avataaars/svg?seed=meta_user"}
+    else:
+        # Get credentials from DB
+        client_id = await crud.get_system_config(db, "facebook_client_id")
+        client_secret = await crud.get_system_config(db, "facebook_client_secret")
+        
+        token_data, error = meta_service.exchange_facebook_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        page_info = {
+            "id": token_data["id"],
+            "name": token_data["name"],
+            "fan_count": 0 # Default for real and mock
+        }
+        
+    await crud.save_facebook_config(db, user_id, token_data, page_info)
+    return {"status": "connected", "page_name": page_info["name"]}
+
+@app.get("/auth/facebook/status")
+async def get_facebook_status(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    configs = await crud.get_all_facebook_configs(db, user_id)
+    return {"is_connected": len(configs) > 0, "accounts": configs}
+
+@app.delete("/auth/facebook/accounts/{account_id}")
+async def disconnect_facebook_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_facebook_config(db, user_id, account_id)
+    return {"status": "disconnected"}
+
+@app.post("/auth/facebook/accounts/{account_id}/set-primary")
+async def set_primary_facebook_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.set_primary_facebook_account(db, user_id, account_id)
+    return {"status": "success"}
+
+# X Integration Endpoints
+@app.get("/auth/x/url")
+async def get_x_auth_url(db: AsyncSession = Depends(get_db)):
+    redirect_uri = "http://localhost:3000/auth/x/callback"
+    
+    # Try to get credentials from DB first
+    client_id = await crud.get_system_config(db, "x_client_id")
+    
+    url = x_service.get_auth_url(redirect_uri, client_id=client_id)
+    if not url:
+        raise HTTPException(
+            status_code=400, 
+            detail="X Client ID is missing or invalid. Please configure it in Settings > Platform Configuration."
+        )
+    return {"auth_url": url}
+
+@app.post("/auth/x/callback")
+async def x_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    redirect_uri = "http://localhost:3000/auth/x/callback"
+    
+    if code == "mock_code_123":
+        token_data = {
+            "access_token": "mock_x_token", 
+            "refresh_token": "mock_x_refresh",
+            "user_id": "mock_x_id",
+            "username": "x_user"
+        }
+        user_info = {"id_str": "mock_x_id", "screen_name": "x_user", "follower_count": 1000, "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=x_user"}
+    else:
+        # Get credentials from DB
+        client_id = await crud.get_system_config(db, "x_client_id")
+        client_secret = await crud.get_system_config(db, "x_client_secret")
+        
+        token_data, error = x_service.exchange_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        user_info = {
+            "id_str": token_data["user_id"],
+            "screen_name": token_data["username"],
+            "follower_count": token_data["followers_count"],
+            "profile_image_url": token_data["profile_image"]
+        }
+        
+    await crud.save_x_config(db, user_id, token_data, user_info)
+    return {"status": "connected", "username": user_info["screen_name"]}
+
+@app.get("/auth/x/status")
+async def get_x_status(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    configs = await crud.get_all_x_configs(db, user_id)
+    return {"is_connected": len(configs) > 0, "accounts": configs}
+
+@app.delete("/auth/x/accounts/{account_id}")
+async def disconnect_x_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_x_config(db, user_id, account_id)
+    return {"status": "disconnected"}
+
+@app.post("/auth/x/accounts/{account_id}/set-primary")
+async def set_primary_x_account(account_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.set_primary_x_account(db, user_id, account_id)
+    return {"status": "success"}
+
+
 # Unified Auth Endpoints
 # Auth Logic continued...
 
@@ -452,21 +663,15 @@ async def upload_to_youtube(request: schemas.YouTubeUploadRequest, account_id: i
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
         
-    # Prepare Token Data
-    token_data = {
-        'access_token': config.access_token,
-        'refresh_token': config.refresh_token,
-        'expiry': config.token_expiry
-    }
-    
-    # Upload
-    response, error = youtube_service.upload_video(
-        token_data, 
+    # Upload - Now passing the config model directly and the DB session for refresh persistence
+    response, error = await youtube_service.upload_video(
+        config, 
         clip.file_path, 
         request.title, 
         request.description, 
         request.tags.split(',') if request.tags else [],
-        privacy_status=request.privacy_status
+        privacy_status=request.privacy_status,
+        db=db
     )
     
     if error:

@@ -3,6 +3,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from . import models, schemas
 from datetime import datetime
+from .security import encrypt_token, decrypt_token
 
 async def create_user(db: AsyncSession, user: schemas.UserCreate):
     db_user = models.User(email=user.email, full_name=user.full_name)
@@ -111,10 +112,14 @@ async def save_youtube_config(db: AsyncSession, user_id: int, token_data: dict, 
     )
     existing_config = result.scalars().first()
     
+    # Encrypt tokens before saving
+    encrypted_access_token = encrypt_token(token_data['token'])
+    encrypted_refresh_token = encrypt_token(token_data.get('refresh_token'))
+    
     if existing_config:
         # Update existing config with new tokens
-        existing_config.access_token = token_data['token']
-        existing_config.refresh_token = token_data.get('refresh_token')
+        existing_config.access_token = encrypted_access_token
+        existing_config.refresh_token = encrypted_refresh_token
         existing_config.token_expiry = datetime.fromisoformat(token_data['expiry']) if token_data.get('expiry') else None
         existing_config.subscriber_count = channel_info.get('subscriber_count')
         existing_config.video_count = channel_info.get('video_count')
@@ -132,8 +137,8 @@ async def save_youtube_config(db: AsyncSession, user_id: int, token_data: dict, 
     
     new_config = models.YouTubeConfig(
         user_id=user_id,
-        access_token=token_data['token'],
-        refresh_token=token_data.get('refresh_token'),
+        access_token=encrypted_access_token,
+        refresh_token=encrypted_refresh_token,
         token_expiry=datetime.fromisoformat(token_data['expiry']) if token_data.get('expiry') else None,
         channel_name=channel_info.get('title'),
         channel_id=channel_info.get('id'),
@@ -281,3 +286,225 @@ async def set_system_config(db: AsyncSession, key: str, value: str):
     
     await db.commit()
     return value
+
+# Instagram CRUD
+async def get_all_instagram_configs(db: AsyncSession, user_id: int):
+    result = await db.execute(
+        select(models.InstagramConfig)
+        .filter(models.InstagramConfig.user_id == user_id)
+        .order_by(models.InstagramConfig.is_primary.desc(), models.InstagramConfig.created_at.desc())
+    )
+    return result.scalars().all()
+
+async def save_instagram_config(db: AsyncSession, user_id: int, token_data: dict, profile_info: dict):
+    result = await db.execute(
+        select(models.InstagramConfig).filter(
+            models.InstagramConfig.user_id == user_id,
+            models.InstagramConfig.instagram_id == profile_info.get('id')
+        )
+    )
+    existing_config = result.scalars().first()
+    
+    encrypted_access_token = encrypt_token(token_data['access_token'])
+    encrypted_refresh_token = encrypt_token(token_data.get('refresh_token'))
+    
+    if existing_config:
+        existing_config.access_token = encrypted_access_token
+        existing_config.refresh_token = encrypted_refresh_token
+        existing_config.follower_count = profile_info.get('follower_count')
+        existing_config.is_connected = True
+        await db.commit()
+        await db.refresh(existing_config)
+        return existing_config
+    
+    result = await db.execute(
+        select(models.InstagramConfig).filter(models.InstagramConfig.user_id == user_id)
+    )
+    existing_configs = result.scalars().all()
+    is_first = len(existing_configs) == 0
+    
+    new_config = models.InstagramConfig(
+        user_id=user_id,
+        access_token=encrypted_access_token,
+        refresh_token=encrypted_refresh_token,
+        username=profile_info.get('username'),
+        instagram_id=profile_info.get('id'),
+        profile_picture=profile_info.get('profile_picture'),
+        follower_count=profile_info.get('follower_count'),
+        is_connected=True,
+        is_primary=is_first
+    )
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    return new_config
+
+async def set_primary_instagram_account(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import update
+    await db.execute(
+        update(models.InstagramConfig).where(models.InstagramConfig.user_id == user_id).values(is_primary=False)
+    )
+    await db.execute(
+        update(models.InstagramConfig).where(models.InstagramConfig.user_id == user_id, models.InstagramConfig.id == config_id).values(is_primary=True)
+    )
+    await db.commit()
+    result = await db.execute(select(models.InstagramConfig).where(models.InstagramConfig.id == config_id))
+    return result.scalars().first()
+
+async def disconnect_instagram_config(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import delete
+    await db.execute(
+        delete(models.InstagramConfig).where(models.InstagramConfig.user_id == user_id, models.InstagramConfig.id == config_id)
+    )
+    remaining = await get_all_instagram_configs(db, user_id)
+    if remaining and not any(c.is_primary for c in remaining):
+        await set_primary_instagram_account(db, user_id, remaining[0].id)
+    await db.commit()
+
+# Facebook CRUD
+async def get_all_facebook_configs(db: AsyncSession, user_id: int):
+    result = await db.execute(
+        select(models.FacebookConfig)
+        .filter(models.FacebookConfig.user_id == user_id)
+        .order_by(models.FacebookConfig.is_primary.desc(), models.FacebookConfig.created_at.desc())
+    )
+    return result.scalars().all()
+
+async def save_facebook_config(db: AsyncSession, user_id: int, token_data: dict, page_info: dict):
+    result = await db.execute(
+        select(models.FacebookConfig).filter(
+            models.FacebookConfig.user_id == user_id,
+            models.FacebookConfig.page_id == page_info.get('id')
+        )
+    )
+    existing_config = result.scalars().first()
+    
+    encrypted_access_token = encrypt_token(token_data['access_token'])
+    encrypted_page_access_token = encrypt_token(token_data.get('page_access_token'))
+    
+    if existing_config:
+        existing_config.access_token = encrypted_access_token
+        existing_config.page_access_token = encrypted_page_access_token
+        existing_config.fan_count = page_info.get('fan_count')
+        existing_config.is_connected = True
+        await db.commit()
+        await db.refresh(existing_config)
+        return existing_config
+    
+    result = await db.execute(
+        select(models.FacebookConfig).filter(models.FacebookConfig.user_id == user_id)
+    )
+    existing_configs = result.scalars().all()
+    is_first = len(existing_configs) == 0
+    
+    new_config = models.FacebookConfig(
+        user_id=user_id,
+        access_token=encrypted_access_token,
+        page_access_token=encrypted_page_access_token,
+        page_name=page_info.get('name'),
+        page_id=page_info.get('id'),
+        page_thumbnail=page_info.get('thumbnail'),
+        fan_count=page_info.get('fan_count'),
+        is_connected=True,
+        is_primary=is_first
+    )
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    return new_config
+
+async def set_primary_facebook_account(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import update
+    await db.execute(
+        update(models.FacebookConfig).where(models.FacebookConfig.user_id == user_id).values(is_primary=False)
+    )
+    await db.execute(
+        update(models.FacebookConfig).where(models.FacebookConfig.user_id == user_id, models.FacebookConfig.id == config_id).values(is_primary=True)
+    )
+    await db.commit()
+    result = await db.execute(select(models.FacebookConfig).where(models.FacebookConfig.id == config_id))
+    return result.scalars().first()
+
+async def disconnect_facebook_config(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import delete
+    await db.execute(
+        delete(models.FacebookConfig).where(models.FacebookConfig.user_id == user_id, models.FacebookConfig.id == config_id)
+    )
+    remaining = await get_all_facebook_configs(db, user_id)
+    if remaining and not any(c.is_primary for c in remaining):
+        await set_primary_facebook_account(db, user_id, remaining[0].id)
+    await db.commit()
+
+# X CRUD
+async def get_all_x_configs(db: AsyncSession, user_id: int):
+    result = await db.execute(
+        select(models.XConfig)
+        .filter(models.XConfig.user_id == user_id)
+        .order_by(models.XConfig.is_primary.desc(), models.XConfig.created_at.desc())
+    )
+    return result.scalars().all()
+
+async def save_x_config(db: AsyncSession, user_id: int, token_data: dict, user_info: dict):
+    result = await db.execute(
+        select(models.XConfig).filter(
+            models.XConfig.user_id == user_id,
+            models.XConfig.user_id_str == user_info.get('id_str')
+        )
+    )
+    existing_config = result.scalars().first()
+    
+    encrypted_access_token = encrypt_token(token_data['access_token'])
+    encrypted_refresh_token = encrypt_token(token_data.get('refresh_token'))
+    
+    if existing_config:
+        existing_config.access_token = encrypted_access_token
+        existing_config.refresh_token = encrypted_refresh_token
+        existing_config.follower_count = user_info.get('follower_count')
+        existing_config.is_connected = True
+        await db.commit()
+        await db.refresh(existing_config)
+        return existing_config
+    
+    result = await db.execute(
+        select(models.XConfig).filter(models.XConfig.user_id == user_id)
+    )
+    existing_configs = result.scalars().all()
+    is_first = len(existing_configs) == 0
+    
+    new_config = models.XConfig(
+        user_id=user_id,
+        access_token=encrypted_access_token,
+        refresh_token=encrypted_refresh_token,
+        username=user_info.get('screen_name'),
+        user_id_str=user_info.get('id_str'),
+        profile_image_url=user_info.get('profile_image_url'),
+        follower_count=user_info.get('follower_count'),
+        is_connected=True,
+        is_primary=is_first
+    )
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    return new_config
+
+async def set_primary_x_account(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import update
+    await db.execute(
+        update(models.XConfig).where(models.XConfig.user_id == user_id).values(is_primary=False)
+    )
+    await db.execute(
+        update(models.XConfig).where(models.XConfig.user_id == user_id, models.XConfig.id == config_id).values(is_primary=True)
+    )
+    await db.commit()
+    result = await db.execute(select(models.XConfig).where(models.XConfig.id == config_id))
+    return result.scalars().first()
+
+async def disconnect_x_config(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import delete
+    await db.execute(
+        delete(models.XConfig).where(models.XConfig.user_id == user_id, models.XConfig.id == config_id)
+    )
+    remaining = await get_all_x_configs(db, user_id)
+    if remaining and not any(c.is_primary for c in remaining):
+        await set_primary_x_account(db, user_id, remaining[0].id)
+    await db.commit()

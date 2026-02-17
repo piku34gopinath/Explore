@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, AlertCircle, Loader2, Youtube } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, Youtube, Instagram, Facebook, Twitter } from "lucide-react";
 
 export default function SettingsPage() {
   const [provider, setProvider] = useState<string>("openai");
@@ -21,8 +21,18 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [savedConfigs, setSavedConfigs] = useState<any[]>([]);
   const [youtubeConfig, setYoutubeConfig] = useState<{ is_connected: boolean, accounts?: any[], channel_name?: string, channel_thumbnail?: string, subscriber_count?: number, video_count?: number } | null>(null);
+  const [instagramConfig, setInstagramConfig] = useState<{ is_connected: boolean, accounts?: any[] } | null>(null);
+  const [facebookConfig, setFacebookConfig] = useState<{ is_connected: boolean, accounts?: any[] } | null>(null);
+  const [xConfig, setXConfig] = useState<{ is_connected: boolean, accounts?: any[] } | null>(null);
+
   const [googleClientId, setGoogleClientId] = useState("");
   const [googleClientSecret, setGoogleClientSecret] = useState("");
+  const [instagramClientId, setInstagramClientId] = useState("");
+  const [instagramClientSecret, setInstagramClientSecret] = useState("");
+  const [facebookClientId, setFacebookClientId] = useState("");
+  const [facebookClientSecret, setFacebookClientSecret] = useState("");
+  const [xClientId, setXClientId] = useState("");
+  const [xClientSecret, setXClientSecret] = useState("");
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -31,17 +41,33 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchConfigs();
-    fetchYoutubeStatus();
+    fetchSocialStatuses();
     fetchSystemConfigs();
   }, []);
 
+  const fetchSocialStatuses = () => {
+    fetchYoutubeStatus();
+    fetchInstagramStatus();
+    fetchFacebookStatus();
+    fetchXStatus();
+  };
+
   const fetchSystemConfigs = async () => {
     try {
-        const idRes = await axios.get(`${API_URL}/settings/system/google_client_id`);
-        if (idRes.data.value) setGoogleClientId(idRes.data.value);
-        
-        const secretRes = await axios.get(`${API_URL}/settings/system/google_client_secret`);
-        if (secretRes.data.value) setGoogleClientSecret(secretRes.data.value);
+        const platformKeys = [
+            { id: "google_client_id", secret: "google_client_secret", setId: setGoogleClientId, setSecret: setGoogleClientSecret },
+            { id: "instagram_client_id", secret: "instagram_client_secret", setId: setInstagramClientId, setSecret: setInstagramClientSecret },
+            { id: "facebook_client_id", secret: "facebook_client_secret", setId: setFacebookClientId, setSecret: setFacebookClientSecret },
+            { id: "x_client_id", secret: "x_client_secret", setId: setXClientId, setSecret: setXClientSecret }
+        ];
+
+        for (const platform of platformKeys) {
+            const idRes = await axios.get(`${API_URL}/settings/system/${platform.id}`);
+            if (idRes.data.value) platform.setId(idRes.data.value);
+            
+            const secretRes = await axios.get(`${API_URL}/settings/system/${platform.secret}`);
+            if (secretRes.data.value) platform.setSecret(secretRes.data.value);
+        }
     } catch (err) {
         console.error("Error fetching system configs:", err);
     }
@@ -58,6 +84,33 @@ export default function SettingsPage() {
       console.error("Error fetching YouTube status:", err);
     } finally {
       setStatusLoading(false);
+    }
+  };
+
+  const fetchInstagramStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/instagram/status`);
+      setInstagramConfig(response.data);
+    } catch (err) {
+      console.error("Error fetching Instagram status:", err);
+    }
+  };
+
+  const fetchFacebookStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/facebook/status`);
+      setFacebookConfig(response.data);
+    } catch (err) {
+      console.error("Error fetching Facebook status:", err);
+    }
+  };
+
+  const fetchXStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/x/status`);
+      setXConfig(response.data);
+    } catch (err) {
+      console.error("Error fetching X status:", err);
     }
   };
 
@@ -144,24 +197,58 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSetPrimaryAccount = async (accountId: number) => {
+  const handleConnectSocial = async (platform: string) => {
+    setError(null);
     try {
-      await axios.post(`${API_URL}/auth/youtube/accounts/${accountId}/set-primary`);
-      fetchYoutubeStatus();
+      const response = await axios.get(`${API_URL}/auth/${platform}/url`);
+      window.location.href = response.data.auth_url;
     } catch (err: any) {
-      console.error("Error setting primary:", err);
-      setError(err.response?.data?.detail || "Failed to set primary account.");
+      console.error(`Error getting ${platform} auth URL:`, err);
+      setError(err.response?.data?.detail || `Failed to initiate ${platform} connection.`);
+    }
+  };
+
+  const handleDisconnectSocial = async (platform: string, accountId: number) => {
+    if (!confirm(`Are you sure you want to disconnect this ${platform} account?`)) return;
+    try {
+      await axios.delete(`${API_URL}/auth/${platform}/accounts/${accountId}`);
+      fetchSocialStatuses();
+    } catch (err) {
+      console.error(`Error disconnecting ${platform}:`, err);
+      setError(`Failed to disconnect ${platform} account.`);
+    }
+  };
+
+  const handleSetPrimarySocialAccount = async (platform: string, accountId: number) => {
+    try {
+      await axios.post(`${API_URL}/auth/${platform}/accounts/${accountId}/set-primary`);
+      fetchSocialStatuses();
+    } catch (err: any) {
+      console.error(`Error setting primary ${platform}:`, err);
+      setError(err.response?.data?.detail || `Failed to set primary ${platform} account.`);
     }
   };
 
   const handleSaveSystemConfig = async () => {
     try {
-        await axios.post(`${API_URL}/settings/system`, { key: "google_client_id", value: googleClientId });
-        await axios.post(`${API_URL}/settings/system`, { key: "google_client_secret", value: googleClientSecret });
-        alert("Google App Configuration Saved!");
+        const configs = [
+            { key: "google_client_id", value: googleClientId },
+            { key: "google_client_secret", value: googleClientSecret },
+            { key: "instagram_client_id", value: instagramClientId },
+            { key: "instagram_client_secret", value: instagramClientSecret },
+            { key: "facebook_client_id", value: facebookClientId },
+            { key: "facebook_client_secret", value: facebookClientSecret },
+            { key: "x_client_id", value: xClientId },
+            { key: "x_client_secret", value: xClientSecret }
+        ];
+
+        for (const config of configs) {
+            await axios.post(`${API_URL}/settings/system`, config);
+        }
+        alert("Platform Configurations Saved!");
     } catch (err) {
         console.error("Error saving system config:", err);
-        setError("Failed to save Google App settings.");
+        setError("Failed to save platform settings.");
     }
   };
 
@@ -171,6 +258,13 @@ export default function SettingsPage() {
         <h1 className="text-3xl font-bold">Settings</h1>
         <p className="text-muted-foreground">Manage your AI and YouTube integrations.</p>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="md:col-span-2 space-y-6">
@@ -183,32 +277,6 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               
-              {/* Show app config section only when no accounts are connected */}
-              {!youtubeConfig?.is_connected && (
-                  <div className="space-y-4 p-4 border rounded-lg bg-muted/50 mb-4">
-                      <h3 className="text-sm font-semibold">1. App Configuration (One-time setup)</h3>
-                      <div className="space-y-2">
-                          <label className="text-xs font-medium">Google Client ID</label>
-                          <Input 
-                              placeholder="xxxxxxxx.apps.googleusercontent.com" 
-                              value={googleClientId}
-                              onChange={(e) => setGoogleClientId(e.target.value)}
-                          />
-                      </div>
-                      <div className="space-y-2">
-                          <label className="text-xs font-medium">Google Client Secret</label>
-                          <Input 
-                              type="password"
-                              placeholder="Required for OAuth" 
-                              value={googleClientSecret}
-                              onChange={(e) => setGoogleClientSecret(e.target.value)}
-                          />
-                      </div>
-                      <Button variant="outline" size="sm" onClick={handleSaveSystemConfig}>
-                          Save App Credentials
-                      </Button>
-                  </div>
-              )}
 
               {statusLoading ? (
                 <div className="flex items-center justify-center py-8">
@@ -244,7 +312,7 @@ export default function SettingsPage() {
                               <Button 
                                 variant="outline" 
                                 size="sm" 
-                                onClick={() => handleSetPrimaryAccount(account.id)}
+                                onClick={() => handleSetPrimarySocialAccount("youtube", account.id)}
                               >
                                 Set Primary
                               </Button>
@@ -252,7 +320,7 @@ export default function SettingsPage() {
                             <Button 
                               variant="destructive" 
                               size="sm" 
-                              onClick={() => handleDisconnectYoutube(account.id)}
+                              onClick={() => handleDisconnectSocial("youtube", account.id)}
                             >
                               Disconnect
                             </Button>
@@ -262,7 +330,7 @@ export default function SettingsPage() {
                       <Button 
                         className="w-full" 
                         variant="outline" 
-                        onClick={handleConnectYoutube}
+                        onClick={() => handleConnectSocial("youtube")}
                       >
                         <Youtube className="h-4 w-4 mr-2" />
                         Add Another Account
@@ -288,7 +356,7 @@ export default function SettingsPage() {
                         <Button 
                           variant="destructive" 
                           size="sm" 
-                          onClick={() => handleDisconnectYoutube()}
+                          onClick={() => handleDisconnectSocial("youtube", (youtubeConfig as any).id)}
                         >
                           Disconnect
                         </Button>
@@ -297,9 +365,132 @@ export default function SettingsPage() {
                   )}
                 </div>
               ) : (
-                <Button className="w-full" onClick={handleConnectYoutube}>
+                <Button className="w-full" onClick={() => handleConnectSocial("youtube")}>
                   <Youtube className="h-4 w-4 mr-2" />
                   Connect YouTube Account
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Instagram Integration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Instagram Integration</CardTitle>
+              <CardDescription>Connect Instagram accounts to post Reels.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {instagramConfig?.is_connected ? (
+                <div className="space-y-4">
+                  {instagramConfig.accounts?.map((account: any) => (
+                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                      {account.profile_picture && (
+                        <img src={account.profile_picture} alt={account.username} className="h-12 w-12 rounded-full" />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">{account.username}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{account.follower_count?.toLocaleString()} followers</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {!account.is_primary && (
+                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("instagram", account.id)}>Set Primary</Button>
+                        )}
+                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("instagram", account.id)}>Disconnect</Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("instagram")}>
+                    <Instagram className="h-4 w-4 mr-2" /> Add Another Account
+                  </Button>
+                </div>
+              ) : (
+                <Button className="w-full" onClick={() => handleConnectSocial("instagram")}>
+                  <Instagram className="h-4 w-4 mr-2" /> Connect Instagram Account
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Facebook Integration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Facebook Integration</CardTitle>
+              <CardDescription>Connect Facebook Pages to post Reels.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {facebookConfig?.is_connected ? (
+                <div className="space-y-4">
+                  {facebookConfig.accounts?.map((account: any) => (
+                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                      {account.page_thumbnail && (
+                        <img src={account.page_thumbnail} alt={account.page_name} className="h-12 w-12 rounded-full" />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">{account.page_name}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{account.fan_count?.toLocaleString()} likes</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {!account.is_primary && (
+                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("facebook", account.id)}>Set Primary</Button>
+                        )}
+                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("facebook", account.id)}>Disconnect</Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("facebook")}>
+                    <Facebook className="h-4 w-4 mr-2" /> Add Another Page
+                  </Button>
+                </div>
+              ) : (
+                <Button className="w-full" onClick={() => handleConnectSocial("facebook")}>
+                  <Facebook className="h-4 w-4 mr-2" /> Connect Facebook Page
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* X Integration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>X Integration</CardTitle>
+              <CardDescription>Connect X accounts to post videos.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {xConfig?.is_connected ? (
+                <div className="space-y-4">
+                  {xConfig.accounts?.map((account: any) => (
+                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                      {account.profile_image_url && (
+                        <img src={account.profile_image_url} alt={account.username} className="h-12 w-12 rounded-full" />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold">@{account.username}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{account.follower_count?.toLocaleString()} followers</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {!account.is_primary && (
+                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("x", account.id)}>Set Primary</Button>
+                        )}
+                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("x", account.id)}>Disconnect</Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("x")}>
+                    <Twitter className="h-4 w-4 mr-2" /> Add Another Account
+                  </Button>
+                </div>
+              ) : (
+                <Button className="w-full" onClick={() => handleConnectSocial("x")}>
+                  <Twitter className="h-4 w-4 mr-2" /> Connect X Account
                 </Button>
               )}
             </CardContent>
@@ -344,12 +535,6 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
 
               {verified && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
@@ -378,6 +563,67 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Platform Configuration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Platform Configuration</CardTitle>
+              <CardDescription>Configure API credentials for social platforms.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Instagram className="h-4 w-4" /> Instagram Configuration
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client ID</label>
+                    <Input value={instagramClientId} onChange={(e) => setInstagramClientId(e.target.value)} placeholder="Instagram Client ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client Secret</label>
+                    <Input type="password" value={instagramClientSecret} onChange={(e) => setInstagramClientSecret(e.target.value)} placeholder="Instagram Client Secret" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Facebook className="h-4 w-4" /> Facebook Configuration
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client ID</label>
+                    <Input value={facebookClientId} onChange={(e) => setFacebookClientId(e.target.value)} placeholder="Facebook Client ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client Secret</label>
+                    <Input type="password" value={facebookClientSecret} onChange={(e) => setFacebookClientSecret(e.target.value)} placeholder="Facebook Client Secret" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Twitter className="h-4 w-4" /> X (Twitter) Configuration
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client ID</label>
+                    <Input value={xClientId} onChange={(e) => setXClientId(e.target.value)} placeholder="X Client ID" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium">Client Secret</label>
+                    <Input type="password" value={xClientSecret} onChange={(e) => setXClientSecret(e.target.value)} placeholder="X Client Secret" />
+                  </div>
+                </div>
+              </div>
+
+              <Button className="w-full" onClick={handleSaveSystemConfig}>
+                Save Platform Configurations
+              </Button>
             </CardContent>
           </Card>
         </div>
