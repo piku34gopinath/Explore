@@ -266,401 +266,401 @@ export default function SettingsPage() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-6">
-          
-          {/* YouTube Integration Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>YouTube Integration</CardTitle>
-              <CardDescription>Connect multiple YouTube accounts to upload Shorts.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              
-
-              {statusLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              ) : youtubeConfig?.is_connected ? (
-                <div className="space-y-4">
-                  {/* Display connected accounts */}
-                  {youtubeConfig.accounts && youtubeConfig.accounts.length > 0 ? (
-                    <>
-                      {youtubeConfig.accounts.map((account: any) => (
-                        <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Row 1 Left: YouTube Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>YouTube Integration</CardTitle>
+            <CardDescription>Connect multiple YouTube accounts to upload Shorts.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {statusLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : youtubeConfig?.is_connected ? (
+              <div className="space-y-4">
+                {youtubeConfig.accounts && youtubeConfig.accounts.length > 0 ? (
+                  <>
+                    {youtubeConfig.accounts.map((account: any) => (
+                      <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg gap-4">
+                        <div className="flex items-center gap-4 min-w-0 overflow-hidden">
                           {account.channel_thumbnail && (
                             <img 
                               src={account.channel_thumbnail} 
                               alt={account.channel_name} 
-                              className="h-12 w-12 rounded-full" 
+                              className="h-12 w-12 rounded-full flex-shrink-0" 
                             />
                           )}
-                          <div className="flex-1">
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-semibold">{account.channel_name}</h3>
+                              <h3 className="font-semibold truncate">{account.channel_name}</h3>
                               {account.is_primary && (
-                                <Badge variant="secondary" className="text-xs">PRIMARY</Badge>
+                                <Badge variant="secondary" className="text-xs flex-shrink-0">PRIMARY</Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground">
+                            <p className="text-sm text-muted-foreground truncate">
                               {account.subscriber_count?.toLocaleString()} subscribers • {account.video_count?.toLocaleString()} videos
                             </p>
                           </div>
-                          <div className="flex gap-2">
-                            {!account.is_primary && (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => handleSetPrimarySocialAccount("youtube", account.id)}
-                              >
-                                Set Primary
-                              </Button>
-                            )}
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {!account.is_primary && (
                             <Button 
-                              variant="destructive" 
+                              variant="outline" 
                               size="sm" 
-                              onClick={() => handleDisconnectSocial("youtube", account.id)}
+                              onClick={() => handleSetPrimarySocialAccount("youtube", account.id)}
                             >
-                              Disconnect
+                              Set Primary
                             </Button>
-                          </div>
+                          )}
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            onClick={() => handleDisconnectSocial("youtube", account.id)}
+                          >
+                            Disconnect
+                          </Button>
                         </div>
-                      ))}
+                      </div>
+                    ))}
+                    <Button 
+                      className="w-full" 
+                      variant="outline" 
+                      onClick={() => handleConnectSocial("youtube")}
+                    >
+                      <Youtube className="h-4 w-4 mr-2" />
+                      Add Another Account
+                    </Button>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      {youtubeConfig.channel_thumbnail && (
+                        <img 
+                          src={youtubeConfig.channel_thumbnail} 
+                          alt="Channel" 
+                          className="h-12 w-12 rounded-full" 
+                        />
+                      )}
+                      <div className="flex-1">
+                        <h3 className="font-semibold">{youtubeConfig.channel_name}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {youtubeConfig.subscriber_count?.toLocaleString()} subscribers • {youtubeConfig.video_count?.toLocaleString()} videos
+                        </p>
+                      </div>
                       <Button 
-                        className="w-full" 
-                        variant="outline" 
-                        onClick={() => handleConnectSocial("youtube")}
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => handleDisconnectSocial("youtube", (youtubeConfig as any).id)}
                       >
-                        <Youtube className="h-4 w-4 mr-2" />
-                        Add Another Account
+                        Disconnect
                       </Button>
-                    </>
-                  ) : (
-                    /* Fallback for old single-account format */
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-4">
-                        {youtubeConfig.channel_thumbnail && (
-                          <img 
-                            src={youtubeConfig.channel_thumbnail} 
-                            alt="Channel" 
-                            className="h-12 w-12 rounded-full" 
-                          />
-                        )}
-                        <div className="flex-1">
-                          <h3 className="font-semibold">{youtubeConfig.channel_name}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {youtubeConfig.subscriber_count?.toLocaleString()} subscribers • {youtubeConfig.video_count?.toLocaleString()} videos
-                          </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Button className="w-full" onClick={() => handleConnectSocial("youtube")}>
+                <Youtube className="h-4 w-4 mr-2" />
+                Connect YouTube Account
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Row 1 Right: X (Twitter) Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>X Integration</CardTitle>
+            <CardDescription>Connect X accounts to post videos.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {xConfig?.is_connected ? (
+              <div className="space-y-4">
+                {xConfig.accounts?.map((account: any) => (
+                  <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg gap-4">
+                    <div className="flex items-center gap-4 min-w-0 overflow-hidden">
+                      {account.profile_image_url && (
+                        <img src={account.profile_image_url} alt={account.username} className="h-12 w-12 rounded-full flex-shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold truncate">@{account.username}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs flex-shrink-0">PRIMARY</Badge>}
                         </div>
-                        <Button 
-                          variant="destructive" 
-                          size="sm" 
-                          onClick={() => handleDisconnectSocial("youtube", (youtubeConfig as any).id)}
-                        >
-                          Disconnect
-                        </Button>
+                        <p className="text-sm text-muted-foreground truncate">{account.follower_count?.toLocaleString()} followers</p>
                       </div>
                     </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {!account.is_primary && (
+                        <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("x", account.id)}>Set Primary</Button>
+                      )}
+                      <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("x", account.id)}>Disconnect</Button>
+                    </div>
+                  </div>
+                ))}
+                <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("x")}>
+                  <Twitter className="h-4 w-4 mr-2" /> Add Another Account
+                </Button>
+              </div>
+            ) : (
+              <Button className="w-full" onClick={() => handleConnectSocial("x")}>
+                <Twitter className="h-4 w-4 mr-2" /> Connect X Account
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Row 2 Left: Facebook Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Facebook Integration</CardTitle>
+            <CardDescription>Connect Facebook Pages to post Reels.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {facebookConfig?.is_connected ? (
+              <div className="space-y-4">
+                {facebookConfig.accounts?.map((account: any) => (
+                  <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg gap-4">
+                    <div className="flex items-center gap-4 min-w-0 overflow-hidden">
+                      {account.page_thumbnail && (
+                        <img src={account.page_thumbnail} alt={account.page_name} className="h-12 w-12 rounded-full flex-shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold truncate">{account.page_name}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs flex-shrink-0">PRIMARY</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">{account.fan_count?.toLocaleString()} likes</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {!account.is_primary && (
+                        <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("facebook", account.id)}>Set Primary</Button>
+                      )}
+                      <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("facebook", account.id)}>Disconnect</Button>
+                    </div>
+                  </div>
+                ))}
+                <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("facebook")}>
+                  <Facebook className="h-4 w-4 mr-2" /> Add Another Page
+                </Button>
+              </div>
+            ) : (
+              <Button className="w-full" onClick={() => handleConnectSocial("facebook")}>
+                <Facebook className="h-4 w-4 mr-2" /> Connect Facebook Page
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Row 2 Right: Instagram Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Instagram Integration</CardTitle>
+            <CardDescription>Connect Instagram accounts to post Reels.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {instagramConfig?.is_connected ? (
+              <div className="space-y-4">
+                {instagramConfig.accounts?.map((account: any) => (
+                  <div key={account.id} className="flex items-center justify-between p-4 border rounded-lg gap-4">
+                    <div className="flex items-center gap-4 min-w-0 overflow-hidden">
+                      {account.profile_picture && (
+                        <img src={account.profile_picture} alt={account.username} className="h-12 w-12 rounded-full flex-shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold truncate">{account.username}</h3>
+                          {account.is_primary && <Badge variant="secondary" className="text-xs flex-shrink-0">PRIMARY</Badge>}
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">{account.follower_count?.toLocaleString()} followers</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {!account.is_primary && (
+                        <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("instagram", account.id)}>Set Primary</Button>
+                      )}
+                      <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("instagram", account.id)}>Disconnect</Button>
+                    </div>
+                  </div>
+                ))}
+                <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("instagram")}>
+                  <Instagram className="h-4 w-4 mr-2" /> Add Another Account
+                </Button>
+              </div>
+            ) : (
+              <Button className="w-full" onClick={() => handleConnectSocial("instagram")}>
+                <Instagram className="h-4 w-4 mr-2" /> Connect Instagram Account
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Row 3 Left: Add New Provider */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Add New Provider</CardTitle>
+            <CardDescription>Configure a new AI provider to use for clipping.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">AI Provider</label>
+              <Select value={provider} onValueChange={(val) => { setProvider(val); setVerified(false); setModels([]); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai">OpenAI (ChatGPT)</SelectItem>
+                  <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
+                  <SelectItem value="gemini">Google Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">API Key</label>
+              <div className="flex gap-2">
+                <Input 
+                  type="password" 
+                  placeholder="Enter your API key" 
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); setVerified(false); }}
+                />
+                <Button 
+                  variant="outline" 
+                  onClick={handleVerify} 
+                  disabled={verifying || !apiKey}
+                >
+                  {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                </Button>
+              </div>
+            </div>
+
+            {verified && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                <Alert className="bg-green-500/10 text-green-500 border-green-500/20">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription>API Key verified successfully!</AlertDescription>
+                </Alert>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Model</label>
+                  <Select value={selectedModel} onValueChange={setSelectedModel}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {models.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Button className="w-full" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save Configuration
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Row 3 Right: Active Configurations */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Configs</CardTitle>
+            <CardDescription>Click to activate.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {savedConfigs.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No configurations saved yet.</p>
+            ) : (
+              savedConfigs.map((config) => (
+                <div 
+                  key={config.id} 
+                  className={`p-3 border rounded-lg flex items-center justify-between transition-all ${
+                    config.is_active 
+                      ? "border-green-500/50 bg-green-500/5" 
+                      : "hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
+                  }`}
+                  onClick={() => !config.is_active && handleActivate(config.id)}
+                >
+                  <div>
+                    <p className="font-medium capitalize">{config.provider}</p>
+                    <p className="text-xs text-muted-foreground">{config.selected_model}</p>
+                  </div>
+                  {config.is_active && (
+                    <span className="h-2 w-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,1)]"></span>
                   )}
                 </div>
-              ) : (
-                <Button className="w-full" onClick={() => handleConnectSocial("youtube")}>
-                  <Youtube className="h-4 w-4 mr-2" />
-                  Connect YouTube Account
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-          {/* Instagram Integration Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Instagram Integration</CardTitle>
-              <CardDescription>Connect Instagram accounts to post Reels.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {instagramConfig?.is_connected ? (
-                <div className="space-y-4">
-                  {instagramConfig.accounts?.map((account: any) => (
-                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                      {account.profile_picture && (
-                        <img src={account.profile_picture} alt={account.username} className="h-12 w-12 rounded-full" />
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{account.username}</h3>
-                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{account.follower_count?.toLocaleString()} followers</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {!account.is_primary && (
-                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("instagram", account.id)}>Set Primary</Button>
-                        )}
-                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("instagram", account.id)}>Disconnect</Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("instagram")}>
-                    <Instagram className="h-4 w-4 mr-2" /> Add Another Account
-                  </Button>
+        {/* Full Width Bottom: Platform Configuration */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Platform Configuration</CardTitle>
+            <CardDescription>Configure API credentials for social platforms.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Instagram className="h-4 w-4" /> Instagram Configuration
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client ID</label>
+                  <Input value={instagramClientId} onChange={(e) => setInstagramClientId(e.target.value)} placeholder="Instagram Client ID" />
                 </div>
-              ) : (
-                <Button className="w-full" onClick={() => handleConnectSocial("instagram")}>
-                  <Instagram className="h-4 w-4 mr-2" /> Connect Instagram Account
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Facebook Integration Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Facebook Integration</CardTitle>
-              <CardDescription>Connect Facebook Pages to post Reels.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {facebookConfig?.is_connected ? (
-                <div className="space-y-4">
-                  {facebookConfig.accounts?.map((account: any) => (
-                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                      {account.page_thumbnail && (
-                        <img src={account.page_thumbnail} alt={account.page_name} className="h-12 w-12 rounded-full" />
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{account.page_name}</h3>
-                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{account.fan_count?.toLocaleString()} likes</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {!account.is_primary && (
-                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("facebook", account.id)}>Set Primary</Button>
-                        )}
-                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("facebook", account.id)}>Disconnect</Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("facebook")}>
-                    <Facebook className="h-4 w-4 mr-2" /> Add Another Page
-                  </Button>
-                </div>
-              ) : (
-                <Button className="w-full" onClick={() => handleConnectSocial("facebook")}>
-                  <Facebook className="h-4 w-4 mr-2" /> Connect Facebook Page
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* X Integration Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>X Integration</CardTitle>
-              <CardDescription>Connect X accounts to post videos.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {xConfig?.is_connected ? (
-                <div className="space-y-4">
-                  {xConfig.accounts?.map((account: any) => (
-                    <div key={account.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                      {account.profile_image_url && (
-                        <img src={account.profile_image_url} alt={account.username} className="h-12 w-12 rounded-full" />
-                      )}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">@{account.username}</h3>
-                          {account.is_primary && <Badge variant="secondary" className="text-xs">PRIMARY</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{account.follower_count?.toLocaleString()} followers</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {!account.is_primary && (
-                          <Button variant="outline" size="sm" onClick={() => handleSetPrimarySocialAccount("x", account.id)}>Set Primary</Button>
-                        )}
-                        <Button variant="destructive" size="sm" onClick={() => handleDisconnectSocial("x", account.id)}>Disconnect</Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button className="w-full" variant="outline" onClick={() => handleConnectSocial("x")}>
-                    <Twitter className="h-4 w-4 mr-2" /> Add Another Account
-                  </Button>
-                </div>
-              ) : (
-                <Button className="w-full" onClick={() => handleConnectSocial("x")}>
-                  <Twitter className="h-4 w-4 mr-2" /> Connect X Account
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Add New Provider</CardTitle>
-              <CardDescription>Configure a new AI provider to use for clipping.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">AI Provider</label>
-                <Select value={provider} onValueChange={(val) => { setProvider(val); setVerified(false); setModels([]); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI (ChatGPT)</SelectItem>
-                    <SelectItem value="anthropic">Anthropic (Claude)</SelectItem>
-                    <SelectItem value="gemini">Google Gemini</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">API Key</label>
-                <div className="flex gap-2">
-                  <Input 
-                    type="password" 
-                    placeholder="Enter your API key" 
-                    value={apiKey}
-                    onChange={(e) => { setApiKey(e.target.value); setVerified(false); }}
-                  />
-                  <Button 
-                    variant="outline" 
-                    onClick={handleVerify} 
-                    disabled={verifying || !apiKey}
-                  >
-                    {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
-                  </Button>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client Secret</label>
+                  <Input type="password" value={instagramClientSecret} onChange={(e) => setInstagramClientSecret(e.target.value)} placeholder="Instagram Client Secret" />
                 </div>
               </div>
+            </div>
 
-
-              {verified && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                  <Alert className="bg-green-500/10 text-green-500 border-green-500/20">
-                    <CheckCircle2 className="h-4 w-4" />
-                    <AlertDescription>API Key verified successfully!</AlertDescription>
-                  </Alert>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Select Model</label>
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {models.map(m => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <Button className="w-full" onClick={handleSave} disabled={saving}>
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Save Configuration
-                  </Button>
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Facebook className="h-4 w-4" /> Facebook Configuration
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client ID</label>
+                  <Input value={facebookClientId} onChange={(e) => setFacebookClientId(e.target.value)} placeholder="Facebook Client ID" />
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Platform Configuration Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Platform Configuration</CardTitle>
-              <CardDescription>Configure API credentials for social platforms.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Instagram className="h-4 w-4" /> Instagram Configuration
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client ID</label>
-                    <Input value={instagramClientId} onChange={(e) => setInstagramClientId(e.target.value)} placeholder="Instagram Client ID" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client Secret</label>
-                    <Input type="password" value={instagramClientSecret} onChange={(e) => setInstagramClientSecret(e.target.value)} placeholder="Instagram Client Secret" />
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client Secret</label>
+                  <Input type="password" value={facebookClientSecret} onChange={(e) => setFacebookClientSecret(e.target.value)} placeholder="Facebook Client Secret" />
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Facebook className="h-4 w-4" /> Facebook Configuration
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client ID</label>
-                    <Input value={facebookClientId} onChange={(e) => setFacebookClientId(e.target.value)} placeholder="Facebook Client ID" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client Secret</label>
-                    <Input type="password" value={facebookClientSecret} onChange={(e) => setFacebookClientSecret(e.target.value)} placeholder="Facebook Client Secret" />
-                  </div>
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Twitter className="h-4 w-4" /> X (Twitter) Configuration
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client ID</label>
+                  <Input value={xClientId} onChange={(e) => setXClientId(e.target.value)} placeholder="X Client ID" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium">Client Secret</label>
+                  <Input type="password" value={xClientSecret} onChange={(e) => setXClientSecret(e.target.value)} placeholder="X Client Secret" />
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Twitter className="h-4 w-4" /> X (Twitter) Configuration
-                </h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client ID</label>
-                    <Input value={xClientId} onChange={(e) => setXClientId(e.target.value)} placeholder="X Client ID" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium">Client Secret</label>
-                    <Input type="password" value={xClientSecret} onChange={(e) => setXClientSecret(e.target.value)} placeholder="X Client Secret" />
-                  </div>
-                </div>
-              </div>
-
-              <Button className="w-full" onClick={handleSaveSystemConfig}>
-                Save Platform Configurations
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Active Configs</CardTitle>
-              <CardDescription>Click to activate.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {savedConfigs.length === 0 ? (
-                <p className="text-sm text-muted-foreground italic">No configurations saved yet.</p>
-              ) : (
-                savedConfigs.map((config) => (
-                  <div 
-                    key={config.id} 
-                    className={`p-3 border rounded-lg flex items-center justify-between transition-all ${
-                      config.is_active 
-                        ? "border-green-500/50 bg-green-500/5" 
-                        : "hover:border-primary/50 hover:bg-muted/50 cursor-pointer"
-                    }`}
-                    onClick={() => !config.is_active && handleActivate(config.id)}
-                  >
-                    <div>
-                      <p className="font-medium capitalize">{config.provider}</p>
-                      <p className="text-xs text-muted-foreground">{config.selected_model}</p>
-                    </div>
-                    {config.is_active && (
-                      <span className="h-2 w-2 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,1)]"></span>
-                    )}
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            <Button className="w-full" onClick={handleSaveSystemConfig}>
+              Save Platform Configurations
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

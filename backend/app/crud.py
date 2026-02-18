@@ -351,6 +351,12 @@ async def set_primary_instagram_account(db: AsyncSession, user_id: int, config_i
     result = await db.execute(select(models.InstagramConfig).where(models.InstagramConfig.id == config_id))
     return result.scalars().first()
 
+async def get_instagram_config_by_id(db: AsyncSession, user_id: int, config_id: int):
+    result = await db.execute(
+        select(models.InstagramConfig).filter(models.InstagramConfig.user_id == user_id, models.InstagramConfig.id == config_id)
+    )
+    return result.scalars().first()
+
 async def disconnect_instagram_config(db: AsyncSession, user_id: int, config_id: int):
     from sqlalchemy import delete
     await db.execute(
@@ -425,6 +431,12 @@ async def set_primary_facebook_account(db: AsyncSession, user_id: int, config_id
     result = await db.execute(select(models.FacebookConfig).where(models.FacebookConfig.id == config_id))
     return result.scalars().first()
 
+async def get_facebook_config_by_id(db: AsyncSession, user_id: int, config_id: int):
+    result = await db.execute(
+        select(models.FacebookConfig).filter(models.FacebookConfig.user_id == user_id, models.FacebookConfig.id == config_id)
+    )
+    return result.scalars().first()
+
 async def disconnect_facebook_config(db: AsyncSession, user_id: int, config_id: int):
     from sqlalchemy import delete
     await db.execute(
@@ -497,6 +509,12 @@ async def set_primary_x_account(db: AsyncSession, user_id: int, config_id: int):
     )
     await db.commit()
     result = await db.execute(select(models.XConfig).where(models.XConfig.id == config_id))
+    return result.scalars().first()
+
+async def get_x_config_by_id(db: AsyncSession, user_id: int, config_id: int):
+    result = await db.execute(
+        select(models.XConfig).filter(models.XConfig.user_id == user_id, models.XConfig.id == config_id)
+    )
     return result.scalars().first()
 
 async def disconnect_x_config(db: AsyncSession, user_id: int, config_id: int):

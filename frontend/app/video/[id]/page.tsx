@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info, AlertCircle, Sparkles, TrendingUp, CheckCircle, XCircle, RefreshCw, Youtube, CheckCircle2, Loader2 } from "lucide-react";
+import { Info, AlertCircle, Sparkles, TrendingUp, CheckCircle, XCircle, RefreshCw, Youtube, Twitter, Instagram, Facebook, CheckCircle2, Loader2, Share2, Globe, Lock } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -85,17 +85,39 @@ export default function VideoPage() {
   const videoId = params.id;
   const [video, setVideo] = useState<Video | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
 
   // Upload Dialog State
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadDesc, setUploadDesc] = useState("");
   const [uploadTags, setUploadTags] = useState("");
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
+  const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const [uploadError, setUploadError] = useState("");
   const [youtubeAccounts, setYoutubeAccounts] = useState<any[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  const [xAccounts, setXAccounts] = useState<any[]>([]);
+  const [facebookAccounts, setFacebookAccounts] = useState<any[]>([]);
+  const [instagramAccounts, setInstagramAccounts] = useState<any[]>([]);
+  const [successResults, setSuccessResults] = useState<{platform: string, name: string}[]>([]);
+  
+  // Selection State
+  const [selectedAccounts, setSelectedAccounts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<"youtube" | "x" | "facebook" | "instagram">("youtube");
+
+  const toggleAccount = (account: any, platform: string) => {
+    const accountKey = `${platform}-${account.id}`;
+    setSelectedAccounts(prev => {
+      const exists = prev.find(a => `${a.platform}-${a.id}` === accountKey);
+      if (exists) {
+        return prev.filter(a => `${a.platform}-${a.id}` !== accountKey);
+      } else {
+        const name = platform === "youtube" ? account.channel_name : 
+                     platform === "x" ? `@${account.username}` : 
+                     platform === "facebook" ? account.page_name : 
+                     `@${account.username}`;
+        return [...prev, { ...account, platform, name }];
+      }
+    });
+  };
 
   const fetchVideo = async () => {
     try {
@@ -110,24 +132,59 @@ export default function VideoPage() {
 
   useEffect(() => {
     fetchVideo();
-    fetchYoutubeAccounts();
+    fetchAllAccounts();
     const interval = setInterval(fetchVideo, 3000);
     return () => clearInterval(interval);
   }, [videoId]);
+
+  const fetchAllAccounts = async () => {
+    await Promise.all([
+      fetchYoutubeAccounts(),
+      fetchXAccounts(),
+      fetchFacebookAccounts(),
+      fetchInstagramAccounts()
+    ]);
+  };
 
   const fetchYoutubeAccounts = async () => {
     try {
       const response = await axios.get(`${API_URL}/auth/youtube/status`);
       setYoutubeAccounts(response.data.accounts || []);
-      // Set default to primary account
-      const primaryAccount = response.data.accounts?.find((acc: any) => acc.is_primary);
-      if (primaryAccount) {
-        setSelectedAccountId(primaryAccount.id);
-      } else if (response.data.accounts?.length > 0) {
-        setSelectedAccountId(response.data.accounts[0].id);
+      
+      // Auto-select primary YouTube account if none selected yet
+      if (selectedAccounts.length === 0 && response.data.accounts?.length > 0) {
+        const primary = response.data.accounts.find((acc: any) => acc.is_primary) || response.data.accounts[0];
+        toggleAccount(primary, "youtube");
       }
     } catch (error) {
       console.error("Error fetching YouTube accounts:", error);
+    }
+  };
+
+  const fetchXAccounts = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/x/status`);
+      setXAccounts(response.data.accounts || []);
+    } catch (error) {
+      console.error("Error fetching X accounts:", error);
+    }
+  };
+
+  const fetchFacebookAccounts = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/facebook/status`);
+      setFacebookAccounts(response.data.accounts || []);
+    } catch (error) {
+      console.error("Error fetching Facebook accounts:", error);
+    }
+  };
+
+  const fetchInstagramAccounts = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/instagram/status`);
+      setInstagramAccounts(response.data.accounts || []);
+    } catch (error) {
+      console.error("Error fetching Instagram accounts:", error);
     }
   };
 
@@ -231,46 +288,76 @@ export default function VideoPage() {
     setUploadDesc(clip.description || "");
     setUploadTags(clip.tags || "#shorts");
     setUploadStatus("idle");
-    fetchYoutubeAccounts(); // Refresh accounts when opening dialog
+    setUploadError("");
+    
+    // Clear previous selections and initialize with primary YouTube if available
+    setSelectedAccounts([]);
+    setActiveTab("youtube");
+    
+    fetchAllAccounts(); 
   };
 
   const handleUpload = async () => {
-    if (!selectedClip) return;
+    if (!selectedClip || selectedAccounts.length === 0) return;
     
-    setUploading(true);
+    setUploadStatus("uploading");
     setUploadError("");
-    setUploadStatus("idle");
 
     try {
-      const uploadData: any = {
-        video_id: selectedClip.id,
-        title: uploadTitle,
-        description: uploadDesc,
-        tags: uploadTags,
-        privacy_status: "private"
-      };
+      const results = [];
       
-      // Add account_id if selected (null will default to primary on backend)
-      const url = selectedAccountId 
-        ? `${API_URL}/upload/youtube?account_id=${selectedAccountId}`
-        : `${API_URL}/upload/youtube`;
-      
-      await axios.post(url, uploadData);
-      setUploadStatus("success");
-      // Refresh video to show updated upload status
-      await fetchVideo();
-    } catch (err: any) {
-      console.error("Upload error:", err);
-      setUploadStatus("error");
-      
-      const errorMessage = err.response?.data?.detail || "Failed to upload video.";
-      if (err.response?.status === 400 && errorMessage.toLowerCase().includes("not connected")) {
-        setUploadError("Your YouTube account is not connected or your session has expired. Please sign out and sign in again to refresh your connection.");
-      } else {
-        setUploadError(errorMessage);
+      // Batch upload - Sequential for reliability
+      for (const account of selectedAccounts) {
+        const endpoint = `${API_URL}/upload/${account.platform}`;
+        
+        let payload: any = {
+          video_id: selectedClip.id,
+        };
+
+        if (account.platform === "youtube") {
+          payload = {
+            ...payload,
+            title: uploadTitle,
+            description: uploadDesc,
+            tags: uploadTags,
+            privacy_status: "public" // Explicitly public
+          };
+        } else if (account.platform === "instagram") {
+          payload.caption = `${uploadTitle}\n\n${uploadDesc}\n\n${uploadTags}`;
+        } else if (account.platform === "facebook") {
+          payload.description = uploadDesc;
+        } else if (account.platform === "x") {
+          payload.text = `${uploadTitle}\n${uploadTags}`;
+        }
+
+        const urlWithParams = `${endpoint}?account_id=${account.id}`;
+        
+        try {
+          await axios.post(urlWithParams, payload);
+          results.push({ platform: account.platform, name: account.name, status: "success" });
+        } catch (err: any) {
+          console.error(`Upload error for ${account.platform}:`, err);
+          results.push({ platform: account.platform, name: account.name, status: "error", message: err.response?.data?.detail || "Upload failed" });
+        }
       }
-    } finally {
-      setUploading(false);
+
+      const hasError = results.some(r => r.status === "error");
+      const successfulOnes = results.filter(r => r.status === "success").map(r => ({ platform: r.platform, name: r.name }));
+      setSuccessResults(successfulOnes);
+
+      if (hasError) {
+        const errorMessages = results.filter(r => r.status === "error").map(r => `${r.name}: ${r.message}`).join(", ");
+        setUploadStatus("error");
+        setUploadError(`Some uploads failed: ${errorMessages}`);
+      } else {
+        setUploadStatus("success");
+        // Refresh video to show updated upload status
+        await fetchVideo();
+      }
+    } catch (err: any) {
+      console.error("Batch upload logical error:", err);
+      setUploadStatus("error");
+      setUploadError("A critical error occurred during the batch upload process.");
     }
   };
 
@@ -540,109 +627,311 @@ export default function VideoPage() {
       )}
       {/* Upload Dialog */}
       <Dialog open={!!selectedClip} onOpenChange={(open) => !open && setSelectedClip(null)}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Upload to YouTube Shorts</DialogTitle>
+        <DialogContent className="sm:max-w-[950px] w-[95vw] max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="p-6 pb-2">
+            <DialogTitle className="flex items-center gap-2 text-2xl">
+              <Share2 className="h-6 w-6 text-primary" />
+              Post to Social Media
+            </DialogTitle>
             <DialogDescription>
-              Confirm metadata before uploading. Video will be uploaded as <strong>Private</strong>.
+              Select accounts and customize your post. All posts will be set to <strong>Public</strong>.
             </DialogDescription>
           </DialogHeader>
-          
-          <div className="grid gap-4 py-4">
-            {youtubeAccounts.length > 1 && (
-              <div className="grid gap-2">
-                <label htmlFor="account" className="text-sm font-medium">Upload to Account</label>
-                <Select 
-                  value={selectedAccountId?.toString() || ""} 
-                  onValueChange={(val) => setSelectedAccountId(parseInt(val))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {youtubeAccounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id.toString()}>
-                        {account.channel_name} {account.is_primary && "(Primary)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+
+          <div className="flex-1 overflow-hidden flex flex-col md:flex-row border-t mt-2">
+            {/* Left Column: Account Selection */}
+            <div className="flex-1 flex flex-col border-r bg-muted/30">
+              <div className="flex border-b bg-background overflow-x-auto scrollbar-hide">
+                {(["youtube", "instagram", "facebook", "x"] as const).map((platform) => (
+                  <button
+                    key={platform}
+                    onClick={() => setActiveTab(platform)}
+                    className={`flex-1 min-w-[100px] py-4 px-4 text-sm font-bold border-b-2 transition-all flex items-center justify-center gap-2 ${
+                      activeTab === platform 
+                        ? "border-primary text-primary bg-primary/5 active:scale-95" 
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {platform === "youtube" && <Youtube className="h-4 w-4" />}
+                    {platform === "x" && <Twitter className="h-4 w-4" />}
+                    {platform === "instagram" && <Instagram className="h-4 w-4" />}
+                    {platform === "facebook" && <Facebook className="h-4 w-4" />}
+                    <span className="capitalize">{platform}</span>
+                  </button>
+                ))}
               </div>
-            )}
-            
-            <div className="grid gap-2">
-              <label htmlFor="title" className="text-sm font-medium">Title</label>
-              <Input
-                id="title"
-                value={uploadTitle}
-                onChange={(e) => setUploadTitle(e.target.value)}
-                maxLength={100}
-              />
-              <p className="text-xs text-muted-foreground text-right">{uploadTitle.length}/100</p>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {activeTab === "youtube" && youtubeAccounts.map((account) => (
+                  <div 
+                    key={`yt-${account.id}`}
+                    onClick={() => toggleAccount(account, "youtube")}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md ${selectedAccounts.find(a => a.platform === "youtube" && a.id === account.id) ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "bg-background border-transparent hover:border-muted-foreground/20"}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 shadow-inner">
+                        <Youtube className="h-7 w-7" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-base font-bold truncate">{account.channel_name}</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold opacity-70">YouTube</p>
+                      </div>
+                    </div>
+                    <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedAccounts.find(a => a.platform === "youtube" && a.id === account.id) ? "bg-primary border-primary" : "border-muted"}`}>
+                      {selectedAccounts.find(a => a.platform === "youtube" && a.id === account.id) && <CheckCircle2 className="h-4 w-4 text-white" />}
+                    </div>
+                  </div>
+                ))}
+
+                {activeTab === "x" && xAccounts.map((account) => (
+                  <div 
+                    key={`x-${account.id}`}
+                    onClick={() => toggleAccount(account, "x")}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md ${selectedAccounts.find(a => a.platform === "x" && a.id === account.id) ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "bg-background border-transparent hover:border-muted-foreground/20"}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 bg-black/5 rounded-full flex items-center justify-center text-black shadow-inner">
+                        <Twitter className="h-7 w-7" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-base font-bold truncate">@{account.username}</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold opacity-70">X (Twitter)</p>
+                      </div>
+                    </div>
+                    <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedAccounts.find(a => a.platform === "x" && a.id === account.id) ? "bg-primary border-primary" : "border-muted"}`}>
+                      {selectedAccounts.find(a => a.platform === "x" && a.id === account.id) && <CheckCircle2 className="h-4 w-4 text-white" />}
+                    </div>
+                  </div>
+                ))}
+
+                {activeTab === "facebook" && facebookAccounts.map((account) => (
+                  <div 
+                    key={`fb-${account.id}`}
+                    onClick={() => toggleAccount(account, "facebook")}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md ${selectedAccounts.find(a => a.platform === "facebook" && a.id === account.id) ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "bg-background border-transparent hover:border-muted-foreground/20"}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 shadow-inner">
+                        <Facebook className="h-7 w-7" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-base font-bold truncate">{account.page_name}</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold opacity-70">Facebook</p>
+                      </div>
+                    </div>
+                    <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedAccounts.find(a => a.platform === "facebook" && a.id === account.id) ? "bg-primary border-primary" : "border-muted"}`}>
+                      {selectedAccounts.find(a => a.platform === "facebook" && a.id === account.id) && <CheckCircle2 className="h-4 w-4 text-white" />}
+                    </div>
+                  </div>
+                ))}
+
+                {activeTab === "instagram" && instagramAccounts.map((account) => (
+                  <div 
+                    key={`ig-${account.id}`}
+                    onClick={() => toggleAccount(account, "instagram")}
+                    className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md ${selectedAccounts.find(a => a.platform === "instagram" && a.id === account.id) ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "bg-background border-transparent hover:border-muted-foreground/20"}`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="h-12 w-12 bg-pink-100 rounded-full flex items-center justify-center text-pink-600 shadow-inner">
+                        <Instagram className="h-7 w-7" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-base font-bold truncate">@{account.username}</p>
+                        <p className="text-xs text-muted-foreground uppercase tracking-widest font-semibold opacity-70">Instagram</p>
+                      </div>
+                    </div>
+                    <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedAccounts.find(a => a.platform === "instagram" && a.id === account.id) ? "bg-primary border-primary" : "border-muted"}`}>
+                      {selectedAccounts.find(a => a.platform === "instagram" && a.id === account.id) && <CheckCircle2 className="h-4 w-4 text-white" />}
+                    </div>
+                  </div>
+                ))}
+
+                {((activeTab === "youtube" && youtubeAccounts.length === 0) ||
+                  (activeTab === "x" && xAccounts.length === 0) ||
+                  (activeTab === "facebook" && facebookAccounts.length === 0) ||
+                  (activeTab === "instagram" && instagramAccounts.length === 0)) && (
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-70">
+                      <div className="h-20 w-20 bg-muted/50 rounded-full flex items-center justify-center mb-6">
+                        <AlertCircle className="h-10 w-10 text-muted-foreground" />
+                      </div>
+                      <h4 className="text-lg font-bold mb-2">No accounts connected</h4>
+                      <p className="text-sm text-muted-foreground mb-6 max-w-[200px]">You haven't linked any {activeTab} accounts to your profile yet.</p>
+                      <Button variant="outline" size="sm" onClick={() => window.location.href='/settings'} className="gap-2">
+                        <RefreshCw className="h-4 w-4" />
+                        Go to Settings
+                      </Button>
+                    </div>
+                )}
+              </div>
             </div>
-            
-            <div className="grid gap-2">
-              <label htmlFor="desc" className="text-sm font-medium">Description</label>
-              <Textarea
-                id="desc"
-                value={uploadDesc}
-                onChange={(e) => setUploadDesc(e.target.value)}
-                className="h-24"
-              />
-            </div>
-            
-            <div className="grid gap-2">
-              <label htmlFor="tags" className="text-sm font-medium">Tags (comma separated)</label>
-              <Input
-                id="tags"
-                value={uploadTags}
-                onChange={(e) => setUploadTags(e.target.value)}
-              />
+
+            {/* Right Column: Post Details & Summary */}
+            <div className="flex-[0.85] flex flex-col bg-background">
+              <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+                {uploadStatus === "uploading" ? (
+                  <div className="h-full flex flex-col items-center justify-center space-y-6 py-20 animate-in fade-in zoom-in duration-300">
+                    <div className="relative">
+                      <div className="h-20 w-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                      <Globe className="h-8 w-8 text-primary absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold">Publishing Viral Content</p>
+                      <p className="text-muted-foreground text-sm">Uploading to {selectedAccounts.length} selected platforms...</p>
+                    </div>
+                  </div>
+                ) : uploadStatus === "success" ? (
+                  <div className="h-full flex flex-col items-center justify-center space-y-6 py-20 animate-in fade-in zoom-in duration-300">
+                    <div className="h-20 w-20 bg-emerald-500/10 rounded-full flex items-center justify-center text-emerald-500 shadow-inner">
+                      <CheckCircle2 className="h-10 w-10 animate-pulse" />
+                    </div>
+                    <div className="text-center space-y-2">
+                      <p className="text-2xl font-black italic text-emerald-500">BOOM! GOING VIRAL 🚀</p>
+                      <p className="text-muted-foreground font-medium">Successfully published to:</p>
+                      <div className="flex flex-wrap justify-center gap-2 mt-4">
+                        {successResults.map((res, i) => (
+                          <div key={i} className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full">
+                            {res.platform === "youtube" && <Youtube className="h-3.5 w-3.5 text-red-600" />}
+                            {res.platform === "x" && <Twitter className="h-3.5 w-3.5 text-black" />}
+                            {res.platform === "instagram" && <Instagram className="h-3.5 w-3.5 text-pink-600" />}
+                            {res.platform === "facebook" && <Facebook className="h-3.5 w-3.5 text-blue-600" />}
+                            <span className="text-xs font-bold">{res.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setSelectedClip(null)}
+                      className="mt-6 rounded-xl border-emerald-500/50 hover:bg-emerald-500/5 font-bold"
+                    >
+                      Close and Continue
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-6">
+                      <div className="grid gap-2 outline-none group">
+                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Post Title</label>
+                        <Input
+                          value={uploadTitle}
+                          onChange={(e) => setUploadTitle(e.target.value)}
+                          placeholder="Short and catchy..."
+                          className="text-xl font-bold py-7 px-4 rounded-xl border-2 focus-visible:ring-primary/20"
+                        />
+                      </div>
+                      
+                      <div className="grid gap-2 group">
+                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Description / Caption</label>
+                        <Textarea
+                          value={uploadDesc}
+                          onChange={(e) => setUploadDesc(e.target.value)}
+                          placeholder="Tell your audience about this clip..."
+                          rows={4}
+                          className="rounded-xl border-2 focus-visible:ring-primary/20 resize-none p-4"
+                        />
+                      </div>
+
+                      <div className="grid gap-2 group">
+                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Viral Hashtags</label>
+                        <Input
+                          value={uploadTags}
+                          onChange={(e) => setUploadTags(e.target.value)}
+                          placeholder="#viral, #shorts, #trending"
+                          className="rounded-xl border-2 focus-visible:ring-primary/20 px-4"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Selection Summary Sidebar-within-column */}
+                    <div className="space-y-4 pt-8 border-t">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground italic">
+                          Selected Targets ({selectedAccounts.length})
+                        </label>
+                        {selectedAccounts.length > 0 && (
+                          <button onClick={() => setSelectedAccounts([])} className="text-xs text-primary font-bold hover:underline underline-offset-4 decoration-2">
+                            REMOVE ALL
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {selectedAccounts.length === 0 ? (
+                          <div className="p-6 border-2 border-dashed rounded-2xl text-center text-sm text-muted-foreground bg-muted/20">
+                            Select at least one account on the left
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                            {selectedAccounts.map((account) => (
+                              <div 
+                                key={`${account.platform}-${account.id}`}
+                                className="flex items-center justify-between p-3 rounded-xl bg-muted/50 border-2 border-transparent hover:border-destructive/20 hover:bg-destructive/5 transition-all group"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="h-8 w-8 rounded-lg bg-background flex items-center justify-center shadow-sm">
+                                    {account.platform === "youtube" && <Youtube className="h-4 w-4 text-red-600" />}
+                                    {account.platform === "x" && <Twitter className="h-4 w-4 text-black" />}
+                                    {account.platform === "instagram" && <Instagram className="h-4 w-4 text-pink-600" />}
+                                    {account.platform === "facebook" && <Facebook className="h-4 w-4 text-blue-600" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-bold truncate tracking-tight">{account.name}</p>
+                                    <p className="text-[10px] text-muted-foreground font-black uppercase tracking-tighter opacity-70">{account.platform}</p>
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => toggleAccount(account, account.platform)}
+                                  className="text-muted-foreground hover:text-destructive p-2 rounded-lg hover:bg-destructive/10 transition-all opacity-0 group-hover:opacity-100"
+                                >
+                                  <XCircle className="h-5 w-5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {uploadStatus === "error" && (
+                  <Alert variant="destructive" className="rounded-2xl border-2 shadow-lg animate-in shake duration-500">
+                    <AlertCircle className="h-5 w-5" />
+                    <AlertTitle className="font-bold">Publishing Errors</AlertTitle>
+                    <AlertDescription className="text-xs leading-relaxed font-medium opacity-90">
+                      {uploadError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+              
+              <div className="p-8 border-t bg-muted/10 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
+                <div className="flex items-center justify-between gap-6">
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setSelectedClip(null)} 
+                    disabled={uploadStatus === "uploading"}
+                    className="font-bold uppercase tracking-widest text-xs hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    Discard
+                  </Button>
+                  <Button 
+                    onClick={handleUpload} 
+                    disabled={selectedAccounts.length === 0 || uploadStatus === "uploading"}
+                    size="lg"
+                    className="flex-1 py-7 rounded-2xl gap-3 bg-primary hover:bg-primary/90 text-primary-foreground font-black uppercase tracking-widest shadow-xl shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95"
+                  >
+                    {uploadStatus === "uploading" ? (
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    ) : (
+                      <Globe className="h-6 w-6" />
+                    )}
+                    {uploadStatus === "uploading" ? "Publishing Now..." : `Go Live on ${selectedAccounts.length} Target${selectedAccounts.length !== 1 ? 's' : ''}`}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-
-          {uploadStatus === "error" && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{uploadError}</AlertDescription>
-            </Alert>
-          )}
-
-          {uploadStatus === "error" ? (
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-               <Button variant="destructive" onClick={forceLogout} className="w-full sm:w-auto">
-                Sign Out to Fix
-              </Button>
-              <Button variant="outline" onClick={() => setSelectedClip(null)} className="w-full sm:w-auto">
-                Cancel
-              </Button>
-            </DialogFooter>
-          ) : uploadStatus === "success" ? (
-            <div className="flex flex-col items-center gap-4 py-4">
-              <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
-                <CheckCircle2 className="h-6 w-6" />
-              </div>
-              <p className="text-center font-medium">Upload Successful!</p>
-              <Button onClick={() => setSelectedClip(null)} className="w-full">
-                Close
-              </Button>
-            </div>
-          ) : (
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setSelectedClip(null)} disabled={uploading}>
-                Cancel
-              </Button>
-              <Button onClick={handleUpload} disabled={uploading} className="bg-[#FF0000] hover:bg-[#CC0000] text-white">
-                {uploading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  "Upload Video"
-                )}
-              </Button>
-            </DialogFooter>
-          )}
         </DialogContent>
       </Dialog>
     </div>

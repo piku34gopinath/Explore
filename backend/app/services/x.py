@@ -14,7 +14,8 @@ class XService:
         if not client_id or "your_" in client_id:
             return None
         # OAuth 2.0 Authorization URL
-        scopes = "tweet.read tweet.write users.read offline.access"
+        # Standard scopes for v2. media.write is specific to the new v2 upload endpoints.
+        scopes = "tweet.read tweet.write users.read offline.access media.write"
         return (f"https://twitter.com/i/oauth2/authorize?response_type=code"
                 f"&client_id={client_id}&redirect_uri={redirect_uri}"
                 f"&scope={scopes}&state={state}&code_challenge={code_challenge}"
@@ -24,6 +25,9 @@ class XService:
         client_id = client_id or self.client_id
         client_secret = client_secret or self.client_secret
         
+        if not client_id or not client_secret:
+             return None, "X Client ID or Secret is missing. Please check your settings."
+
         url = "https://api.twitter.com/2/oauth2/token"
         
         # X requires Basic Auth with client_id:client_secret for confidential clients
@@ -44,7 +48,8 @@ class XService:
         
         response = requests.post(url, data=data, headers=headers)
         if response.status_code != 200:
-            return None, response.json().get("error_description", "Failed to exchange X code")
+            print(f"DEBUG: X Token Exchange Failed. Status: {response.status_code}, Body: {response.text}")
+            return None, f"Failed to exchange X code: {response.text}"
         
         token_data = response.json()
         access_token = token_data.get("access_token")
@@ -107,3 +112,110 @@ class XService:
             "access_token": decrypt_token(config_model.access_token),
             "refresh_token": decrypt_token(config_model.refresh_token) if config_model.refresh_token else None
         }
+
+    async def upload_video(self, config_model, file_path, text):
+        """
+        Uploads a video to X using the multi-step INIT-APPEND-FINALIZE process.
+        """
+        tokens = self.get_decrypted_tokens(config_model)
+        access_token = tokens["access_token"]
+        
+        try:
+            if not os.path.exists(file_path):
+                return None, f"Clip file not found: {file_path}"
+                
+            file_size = os.path.getsize(file_path)
+            # Switch to v2 Media Upload Endpoints (requires media.write scope)
+            init_url = "https://api.twitter.com/2/media/upload/initialize"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # 1. INIT
+            init_data = {
+                "media_type": "video/mp4",
+                "total_bytes": file_size,
+                "media_category": "tweet_video"
+            }
+            
+            response = requests.post(init_url, json=init_data, headers=headers)
+            if response.status_code not in [200, 201, 202]:
+                return None, f"X INIT (v2) failed: {response.status_code} - {response.text}"
+                
+            res_json = response.json()
+            # v2 wraps data in a 'data' object; the key is usually 'id' for the media id.
+            data_obj = res_json.get("data", {})
+            media_id = data_obj.get("id") or data_obj.get("media_id") or res_json.get("media_id_string")
+            if not media_id:
+                return None, f"X INIT (v2) failed: media_id missing in response: {response.text}"
+            
+            # 2. APPEND
+            segment_id = 0
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(4 * 1024 * 1024) # 4MB chunks
+                    if not chunk:
+                        break
+                        
+                    append_url = f"https://api.twitter.com/2/media/upload/{media_id}/append"
+                    append_data = {
+                        "segment_index": segment_id
+                    }
+                    files = {"media": chunk}
+                    # V2 APPEND expects multipart/form-data
+                    append_res = requests.post(append_url, data=append_data, files=files, headers={"Authorization": f"Bearer {access_token}"})
+                    
+                    if append_res.status_code < 200 or append_res.status_code > 299:
+                        return None, f"X APPEND (v2) failed at segment {segment_id}: {append_res.status_code} - {append_res.text}"
+                        
+                    segment_id += 1
+                
+            # 3. FINALIZE
+            finalize_url = f"https://api.twitter.com/2/media/upload/{media_id}/finalize"
+            finalize_res = requests.post(finalize_url, headers=headers) 
+            if finalize_res.status_code != 201 and finalize_res.status_code != 200:
+                return None, f"X FINALIZE (v2) failed: {finalize_res.status_code} - {finalize_res.text}"
+                
+            # 4. Wait for processing (status check)
+            import time
+            res_finalize = finalize_res.json()
+            processing_info = res_finalize.get("data", {}).get("processing_info") or res_finalize.get("processing_info")
+            max_wait = 60 # seconds
+            waited = 0
+            while processing_info and processing_info.get("state") == "in_progress" and waited < max_wait:
+                time.sleep(5)
+                waited += 5
+                
+                status_url = "https://api.twitter.com/2/media/upload"
+                status_params = {
+                    "command": "STATUS",
+                    "media_id": media_id
+                }
+                status_res = requests.get(status_url, params=status_params, headers=headers)
+                res_status = status_res.json()
+                processing_info = res_status.get("data", {}).get("processing_info") or res_status.get("processing_info")
+                
+                if processing_info and processing_info.get("state") == "failed":
+                    return None, f"X processing failed: {processing_info.get('error', {}).get('message')}"
+
+            # 5. Post Tweet with Media
+            tweet_url = "https://api.twitter.com/2/tweets"
+            tweet_data = {
+                "text": text,
+                "media": {
+                    "media_ids": [media_id]
+                }
+            }
+            tweet_headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            tweet_res = requests.post(tweet_url, json=tweet_data, headers=tweet_headers)
+            if tweet_res.status_code != 201:
+                return None, f"X Tweet failed: {tweet_res.status_code} - {tweet_res.text}"
+                
+            return tweet_res.json(), None
+        except Exception as e:
+            return None, f"X Service Error: {str(e)}"

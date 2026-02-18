@@ -128,6 +128,18 @@ class YouTubeUploadRequest(BaseModel):
     tags: str
     privacy_status: str = "private" # private, public, unlisted
 
+class InstagramUploadRequest(BaseModel):
+    video_id: int
+    caption: str
+
+class FacebookUploadRequest(BaseModel):
+    video_id: int
+    description: str
+
+class XUploadRequest(BaseModel):
+    video_id: int
+    text: str
+
 class SystemConfig(BaseModel):
     key: str
     value: str

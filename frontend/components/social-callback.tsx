@@ -15,6 +15,13 @@ export default function SocialCallback({ platform }: { platform: string }) {
 
   useEffect(() => {
     const code = searchParams.get("code");
+    const errorParam = searchParams.get("error");
+    const errorDesc = searchParams.get("error_description") || searchParams.get("error_reason");
+    
+    if (errorParam) {
+      setError(errorDesc || errorParam || "Authorization failed");
+      return;
+    }
     
     if (!code) {
       setError(`No authorization code found for ${platform}.`);

@@ -374,11 +374,15 @@ async def get_instagram_auth_url(db: AsyncSession = Depends(get_db)):
     # Try to get credentials from DB first
     client_id = await crud.get_system_config(db, "instagram_client_id")
     
+    # Fallback to Facebook Client ID if Instagram one is not set (Shared App)
+    if not client_id:
+        client_id = await crud.get_system_config(db, "facebook_client_id")
+    
     url = meta_service.get_instagram_auth_url(redirect_uri, client_id=client_id)
     if not url:
         raise HTTPException(
             status_code=400, 
-            detail="Instagram Client ID is missing or invalid. Please configure it in Settings > Platform Configuration."
+            detail="Client ID is missing. Please configure Facebook/Instagram credentials in Settings > Platform Configuration."
         )
     return {"auth_url": url}
 
@@ -387,22 +391,25 @@ async def instagram_auth_callback(code: str, db: AsyncSession = Depends(get_db),
     user_id = current_user.id if current_user else 1
     redirect_uri = "http://localhost:3000/auth/instagram/callback"
     
-    if code == "mock_code_123":
-        token_data = {"access_token": "mock_meta_token", "refresh_token": "mock_meta_refresh"}
-        profile_info = {"id": "mock_meta_id", "username": "meta_user", "follower_count": 1000}
-    else:
-        # Get credentials from DB
-        client_id = await crud.get_system_config(db, "instagram_client_id")
-        client_secret = await crud.get_system_config(db, "instagram_client_secret")
-        
-        token_data, error = meta_service.exchange_instagram_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-        profile_info = {
-            "id": token_data["user_id"],
-            "username": token_data["username"],
-            "follower_count": token_data["follower_count"]
-        }
+    # Get credentials from DB
+    client_id = await crud.get_system_config(db, "instagram_client_id")
+    client_secret = await crud.get_system_config(db, "instagram_client_secret")
+    
+    # Fallback to Facebook credentials if Instagram ones are missing
+    if not client_id:
+        client_id = await crud.get_system_config(db, "facebook_client_id")
+        client_secret = await crud.get_system_config(db, "facebook_client_secret")
+    
+    token_data, error = meta_service.exchange_instagram_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    
+    profile_info = {
+        "id": token_data["user_id"],
+        "username": token_data["username"],
+        "follower_count": token_data["follower_count"],
+        "profile_picture": token_data.get("profile_picture")
+    }
         
     await crud.save_instagram_config(db, user_id, token_data, profile_info)
     return {"status": "connected", "username": profile_info["username"]}
@@ -446,22 +453,19 @@ async def facebook_auth_callback(code: str, db: AsyncSession = Depends(get_db), 
     user_id = current_user.id if current_user else 1
     redirect_uri = "http://localhost:3000/auth/facebook/callback"
     
-    if code == "mock_code_123":
-        token_data = {"access_token": "mock_meta_token", "page_access_token": "mock_meta_page_token"}
-        page_info = {"id": "mock_meta_id", "name": "meta_user Page", "fan_count": 1000, "thumbnail": "https://api.dicebear.com/7.x/avataaars/svg?seed=meta_user"}
-    else:
-        # Get credentials from DB
-        client_id = await crud.get_system_config(db, "facebook_client_id")
-        client_secret = await crud.get_system_config(db, "facebook_client_secret")
-        
-        token_data, error = meta_service.exchange_facebook_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-        page_info = {
-            "id": token_data["id"],
-            "name": token_data["name"],
-            "fan_count": 0 # Default for real and mock
-        }
+    # Get credentials from DB
+    client_id = await crud.get_system_config(db, "facebook_client_id")
+    client_secret = await crud.get_system_config(db, "facebook_client_secret")
+    
+    token_data, error = meta_service.exchange_facebook_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    
+    page_info = {
+        "id": token_data["id"],
+        "name": token_data["name"],
+        "fan_count": 0 
+    }
         
     await crud.save_facebook_config(db, user_id, token_data, page_info)
     return {"status": "connected", "page_name": page_info["name"]}
@@ -505,28 +509,20 @@ async def x_auth_callback(code: str, db: AsyncSession = Depends(get_db), current
     user_id = current_user.id if current_user else 1
     redirect_uri = "http://localhost:3000/auth/x/callback"
     
-    if code == "mock_code_123":
-        token_data = {
-            "access_token": "mock_x_token", 
-            "refresh_token": "mock_x_refresh",
-            "user_id": "mock_x_id",
-            "username": "x_user"
-        }
-        user_info = {"id_str": "mock_x_id", "screen_name": "x_user", "follower_count": 1000, "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=x_user"}
-    else:
-        # Get credentials from DB
-        client_id = await crud.get_system_config(db, "x_client_id")
-        client_secret = await crud.get_system_config(db, "x_client_secret")
-        
-        token_data, error = x_service.exchange_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-        user_info = {
-            "id_str": token_data["user_id"],
-            "screen_name": token_data["username"],
-            "follower_count": token_data["followers_count"],
-            "profile_image_url": token_data["profile_image"]
-        }
+    # Get credentials from DB
+    client_id = await crud.get_system_config(db, "x_client_id")
+    client_secret = await crud.get_system_config(db, "x_client_secret")
+    
+    token_data, error = x_service.exchange_code(code, redirect_uri, client_id=client_id, client_secret=client_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    user_info = {
+        "id_str": token_data["user_id"],
+        "screen_name": token_data["username"],
+        "follower_count": token_data["followers_count"],
+        "profile_image_url": token_data["profile_image"]
+    }
         
     await crud.save_x_config(db, user_id, token_data, user_info)
     return {"status": "connected", "username": user_info["screen_name"]}
@@ -685,6 +681,99 @@ async def upload_to_youtube(request: schemas.YouTubeUploadRequest, account_id: i
     await db.commit()
         
     return {"status": "success", "youtube_id": youtube_id, "channel": config.channel_name}
+
+@app.post("/upload/instagram")
+async def upload_to_instagram(request: schemas.InstagramUploadRequest, account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    
+    if account_id:
+        config = await crud.get_instagram_config_by_id(db, user_id, account_id)
+    else:
+        configs = await crud.get_all_instagram_configs(db, user_id)
+        config = configs[0] if configs else None
+        
+    if not config:
+        raise HTTPException(status_code=400, detail="Instagram account not connected.")
+        
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == request.video_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    response, error = await meta_service.upload_instagram_reel(
+        config, 
+        clip.file_path, 
+        request.caption
+    )
+    
+    if error:
+        raise HTTPException(status_code=500, detail=f"Instagram upload failed: {error}")
+        
+    return {"status": "success", "data": response}
+
+@app.post("/upload/facebook")
+async def upload_to_facebook(request: schemas.FacebookUploadRequest, account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    
+    if account_id:
+        config = await crud.get_facebook_config_by_id(db, user_id, account_id)
+    else:
+        configs = await crud.get_all_facebook_configs(db, user_id)
+        config = configs[0] if configs else None
+        
+    if not config:
+        raise HTTPException(status_code=400, detail="Facebook account not connected.")
+        
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == request.video_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    response, error = await meta_service.upload_facebook_video(
+        config, 
+        clip.file_path, 
+        request.description
+    )
+    
+    if error:
+        raise HTTPException(status_code=500, detail=f"Facebook upload failed: {error}")
+        
+    return {"status": "success", "data": response}
+
+@app.post("/upload/x")
+async def upload_to_x(request: schemas.XUploadRequest, account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    
+    if account_id:
+        config = await crud.get_x_config_by_id(db, user_id, account_id)
+    else:
+        configs = await crud.get_all_x_configs(db, user_id)
+        config = configs[0] if configs else None
+        
+    if not config:
+        raise HTTPException(status_code=400, detail="X account not connected.")
+        
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == request.video_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    response, error = await x_service.upload_video(
+        config, 
+        clip.file_path, 
+        request.text
+    )
+    
+    if error:
+        raise HTTPException(status_code=500, detail=f"X upload failed: {error}")
+        
+    return {"status": "success", "data": response}
 
 @app.delete("/clips/{clip_id}")
 async def delete_clip(clip_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
