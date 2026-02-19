@@ -19,6 +19,34 @@ async def migrate():
     except Exception as e:
         print(f"Column video_count might already exist: {e}")
 
+    # Add video_sources resolution columns
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE video_sources ADD COLUMN source_width INTEGER;"))
+            await conn.execute(text("ALTER TABLE video_sources ADD COLUMN source_height INTEGER;"))
+            print("Added source_width and source_height to video_sources")
+    except Exception as e:
+        print(f"video_sources columns might already exist: {e}")
+
+    # Add generated_clips columns
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE generated_clips ADD COLUMN thumbnail_path VARCHAR;"))
+            await conn.execute(text("ALTER TABLE generated_clips ADD COLUMN width INTEGER;"))
+            await conn.execute(text("ALTER TABLE generated_clips ADD COLUMN height INTEGER;"))
+            await conn.execute(text("ALTER TABLE generated_clips ADD COLUMN file_size INTEGER;"))
+            print("Added thumbnail_path, width, height, file_size to generated_clips")
+    except Exception as e:
+        print(f"generated_clips columns might already exist: {e}")
+
+    # Add suggested_quality to clip_suggestions
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE clip_suggestions ADD COLUMN suggested_quality VARCHAR;"))
+            print("Added suggested_quality to clip_suggestions")
+    except Exception as e:
+        print(f"clip_suggestions columns might already exist: {e}")
+
     # Add is_primary
     try:
         async with engine.begin() as conn:

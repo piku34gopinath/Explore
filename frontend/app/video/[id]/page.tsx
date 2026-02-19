@@ -30,6 +30,10 @@ interface Clip {
   title: string;
   description: string;
   file_path: string;
+  thumbnail_path?: string | null;
+  width?: number | null;
+  height?: number | null;
+  file_size?: number | null;
   tags?: string;
   youtube_id?: string | null;
   uploaded_to_channel?: string | null;
@@ -46,6 +50,7 @@ interface ClipSuggestion {
   reasoning: string;
   status: string;
   platform_preset: string;
+  suggested_quality?: string;
   title?: string;
   tags?: string;
 }
@@ -102,6 +107,9 @@ export default function VideoPage() {
   // Selection State
   const [selectedAccounts, setSelectedAccounts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<"youtube" | "x" | "facebook" | "instagram">("youtube");
+  const [selectedQualities, setSelectedQualities] = useState<Record<number, string>>({});
+  const [capturingThumbnail, setCapturingThumbnail] = useState(false);
+  const [thumbnailTimestamp, setThumbnailTimestamp] = useState(0);
 
   const toggleAccount = (account: any, platform: string) => {
     const accountKey = `${platform}-${account.id}`;
@@ -189,11 +197,55 @@ export default function VideoPage() {
   };
 
   const approveSuggestion = async (suggestionId: number) => {
+    const quality = selectedQualities[suggestionId] || "1080p";
     try {
-      await axios.post(`${API_URL}/videos/${videoId}/suggestions/${suggestionId}/approve`);
+      await axios.post(`${API_URL}/videos/${videoId}/suggestions/${suggestionId}/approve?quality=${quality}`);
       fetchVideo(); // Refresh to show updated status
     } catch (error) {
       console.error("Error approving suggestion:", error);
+    }
+  };
+
+  const handleCaptureThumbnail = async (clipId: number) => {
+    setCapturingThumbnail(true);
+    try {
+      const response = await axios.post(`${API_URL}/clips/${clipId}/thumbnail/capture?timestamp=${thumbnailTimestamp}`);
+      if (response.data.status === "success") {
+        if (selectedClip && selectedClip.id === clipId) {
+          setSelectedClip({ ...selectedClip, thumbnail_path: response.data.thumbnail_url });
+        }
+        await fetchVideo();
+      }
+    } catch (error) {
+      console.error("Error capturing thumbnail:", error);
+    } finally {
+      setCapturingThumbnail(false);
+    }
+  };
+
+  const handleUploadThumbnail = async (clipId: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const response = await axios.post(`${API_URL}/clips/${clipId}/thumbnail/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      if (response.data.status === "success") {
+        if (selectedClip && selectedClip.id === clipId) {
+          setSelectedClip({ ...selectedClip, thumbnail_path: response.data.thumbnail_url });
+        }
+        await fetchVideo();
+      }
+    } catch (error) {
+      console.error("Error uploading thumbnail:", error);
+      alert("Failed to upload thumbnail. Please ensure it's a valid image.");
     }
   };
 
@@ -468,30 +520,66 @@ export default function VideoPage() {
                     <p className="text-sm leading-relaxed text-muted-foreground">{suggestion.reasoning}</p>
                   </div>
 
-                  <div className="pt-3 flex gap-2">
+                  <div className="pt-3 flex flex-col gap-3">
                     {suggestion.status === 'suggested' && (
                       <>
-                        <Button 
-                          className="flex-1" 
-                          size="sm"
-                          onClick={() => approveSuggestion(suggestion.id)}
-                        >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          Generate
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => rejectSuggestion(suggestion.id)}
-                        >
-                          <XCircle className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-bold text-muted-foreground uppercase">Quality:</label>
+                          <Select 
+                            value={selectedQualities[suggestion.id] || suggestion.suggested_quality || "1080p"} 
+                            onValueChange={(val) => setSelectedQualities(prev => ({...prev, [suggestion.id]: val}))}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Select quality" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="4k">4K Ultra HD</SelectItem>
+                              <SelectItem value="1080p">1080p Full HD</SelectItem>
+                              <SelectItem value="720p">720p HD</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            className="flex-1" 
+                            size="sm"
+                            onClick={() => approveSuggestion(suggestion.id)}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Generate
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => rejectSuggestion(suggestion.id)}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </>
                     )}
+                    {suggestion.status === 'rendering' && (
+                      <div className="flex items-center justify-center w-full py-2 text-sm text-blue-600 dark:text-blue-400 font-medium bg-blue-500/5 rounded-lg border border-blue-500/20">
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Rendering Clip...
+                      </div>
+                    )}
                     {suggestion.status === 'approved' && (
-                      <div className="flex items-center justify-center w-full text-sm text-green-600 dark:text-green-400 font-medium">
+                      <div className="flex items-center justify-center w-full py-2 text-sm text-green-600 dark:text-green-400 font-medium bg-green-500/5 rounded-lg border border-green-500/20">
                         <CheckCircle className="h-4 w-4 mr-2" />
-                        Approved - Generating...
+                        Approved - Queued
+                      </div>
+                    )}
+                    {suggestion.status === 'generated' && (
+                      <div className="flex items-center justify-center w-full py-2 text-sm text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-500/5 rounded-lg border border-emerald-500/20">
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Clip Generated
+                      </div>
+                    )}
+                    {suggestion.status === 'failed' && (
+                      <div className="flex items-center justify-center w-full py-2 text-sm text-destructive font-medium bg-destructive/5 rounded-lg border border-destructive/20">
+                        <AlertCircle className="h-4 w-4 mr-2" />
+                        Generation Failed
                       </div>
                     )}
                     {suggestion.status === 'rejected' && (
@@ -566,6 +654,24 @@ export default function VideoPage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Resolution and Size Info */}
+                  {(clip.width || clip.file_size) && (
+                    <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70 bg-muted/30 px-2 py-1.5 rounded-lg border border-muted-foreground/10">
+                      {clip.width && clip.height && (
+                        <span className="flex items-center gap-1">
+                          <Globe className="h-3 w-3" />
+                          {clip.width}x{clip.height}
+                        </span>
+                      )}
+                      {clip.file_size && (
+                        <span className="flex items-center gap-1">
+                          <Info className="h-3 w-3" />
+                          {(clip.file_size / (1024 * 1024)).toFixed(1)} MB
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Upload Status Badge */}
                   {clip.youtube_id && (
@@ -810,6 +916,55 @@ export default function VideoPage() {
                 ) : (
                   <>
                     <div className="space-y-6">
+                      {/* Thumbnail Selection */}
+                      <div className="grid gap-2 outline-none group">
+                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Thumbnail</label>
+                        <div className="flex gap-4 items-start">
+                          <div className="relative aspect-video w-40 bg-black rounded-lg overflow-hidden border-2 border-primary/20">
+                            {selectedClip?.thumbnail_path ? (
+                              <img src={`${API_URL}/static/${selectedClip?.thumbnail_path?.split('/').pop()}`} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[10px]">No Preview</div>
+                            )}
+                            {capturingThumbnail && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                                <Loader2 className="h-4 w-4 text-white animate-spin" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 flex flex-col gap-2">
+                            <div className="flex gap-2">
+                               <Button variant="outline" size="sm" className="flex-1 text-[10px]" onClick={() => selectedClip && handleCaptureThumbnail(selectedClip.id)}>
+                                 Capture Frame
+                               </Button>
+                               <Button variant="outline" size="sm" className="flex-1 text-[10px]" onClick={() => document.getElementById('thumb-upload')?.click()}>
+                                 Upload Custom
+                               </Button>
+                               <input 
+                                 type="file" 
+                                 id="thumb-upload" 
+                                 className="hidden" 
+                                 accept="image/*" 
+                                 onChange={(e) => selectedClip && handleUploadThumbnail(selectedClip.id, e)} 
+                               />
+                            </div>
+                            <div className="space-y-1">
+                               <label className="text-[10px] font-bold text-muted-foreground">Frame Timestamp (seconds):</label>
+                               <Input 
+                                 type="number" 
+                                 step="0.1" 
+                                 value={isNaN(thumbnailTimestamp) ? "" : thumbnailTimestamp} 
+                                 onChange={(e) => {
+                                   const val = e.target.value;
+                                   setThumbnailTimestamp(val === "" ? NaN : parseFloat(val));
+                                 }}
+                                 className="h-7 text-xs"
+                               />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="grid gap-2 outline-none group">
                         <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Post Title</label>
                         <Input

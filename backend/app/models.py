@@ -34,6 +34,8 @@ class VideoSource(Base):
     original_url = Column(String, nullable=False)
     title = Column(String, nullable=True)
     thumbnail_url = Column(String, nullable=True)
+    source_width = Column(Integer, nullable=True)
+    source_height = Column(Integer, nullable=True)
     status = Column(Enum(ProcessingStatus, values_callable=lambda x: [e.value for e in x]), default=ProcessingStatus.PENDING)
     progress = Column(Integer, default=0) # Percentage 0-100
     ai_model = Column(String, nullable=True) # The model used for this video
@@ -51,6 +53,10 @@ class GeneratedClip(Base):
     id = Column(Integer, primary_key=True, index=True)
     video_source_id = Column(Integer, ForeignKey("video_sources.id"))
     file_path = Column(String)
+    thumbnail_path = Column(String, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    file_size = Column(Integer, nullable=True) # Bytes
     duration = Column(Float, nullable=True)
     title = Column(String)
     description = Column(String)
@@ -79,6 +85,7 @@ class ClipSuggestion(Base):
     tags = Column(String, nullable=True)  # Viral hashtags (comma-separated, no # symbols)
     status = Column(String, default="suggested")  # "suggested", "approved", "rejected", "generated"
     platform_preset = Column(String, default="tiktok")  # "tiktok", "youtube_shorts", "instagram_reels"
+    suggested_quality = Column(String, nullable=True) # "4k", "1080p", "720p"
     title = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

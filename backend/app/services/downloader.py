@@ -25,6 +25,8 @@ def get_video_metadata(url: str) -> dict:
             "description": info.get("description", ""),
             "channel": info.get("channel", ""),
             "view_count": info.get("view_count", 0),
+            "width": info.get("width"),
+            "height": info.get("height"),
         }
     except Exception as e:
         print(f"Metadata fetch error: {str(e)}")
@@ -91,18 +93,19 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
     
     # Use yt-dlp's native segment download via external downloader args
     # This is MORE efficient than downloading full video then cropping
+    # Use absolute best quality available
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',  # Prefer mp4 for better compatibility
+        'format': 'bestvideo+bestaudio/best',
+        'merge_output_format': 'mp4',
         'outtmpl': output_template,
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
-        # Use ffmpeg as external downloader with segment support
         'external_downloader': 'ffmpeg',
         'external_downloader_args': {
             'ffmpeg_i': [
-                '-ss', str(start_time),  # Seek to start BEFORE downloading
-                '-to', str(end_time),    # Stop at end time
+                '-ss', str(start_time),
+                '-to', str(end_time),
             ]
         },
     }

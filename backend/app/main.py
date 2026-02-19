@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,17 +217,21 @@ async def download_clip(filename: str):
 
 # Clip Suggestion Endpoints
 @app.post("/videos/{video_id}/suggestions/{suggestion_id}/approve")
-async def approve_suggestion(video_id: int, suggestion_id: int, db: AsyncSession = Depends(database.get_db)):
-    """Approve a clip suggestion to be generated"""
+async def approve_suggestion(video_id: int, suggestion_id: int, quality: str = "1080p", db: AsyncSession = Depends(database.get_db)):
+    """Approve a clip suggestion and trigger rendering with selected quality"""
     from sqlalchemy import update
     
     await db.execute(
         update(models.ClipSuggestion)
         .where(models.ClipSuggestion.id == suggestion_id, models.ClipSuggestion.video_source_id == video_id)
-        .values(status="approved")
+        .values(status="approved", suggested_quality=quality)
     )
     await db.commit()
-    return {"status": "approved"}
+    
+    # Trigger rendering task
+    tasks.render_clip_task.delay(suggestion_id, quality)
+    
+    return {"status": "approved", "message": f"Rendering started at {quality}"}
 
 @app.post("/videos/{video_id}/suggestions/{suggestion_id}/reject")
 async def reject_suggestion(video_id: int, suggestion_id: int, db: AsyncSession = Depends(database.get_db)):
@@ -667,6 +671,7 @@ async def upload_to_youtube(request: schemas.YouTubeUploadRequest, account_id: i
         request.description, 
         request.tags.split(',') if request.tags else [],
         privacy_status=request.privacy_status,
+        thumbnail_path=request.thumbnail_path or clip.thumbnail_path,
         db=db
     )
     
@@ -774,6 +779,68 @@ async def upload_to_x(request: schemas.XUploadRequest, account_id: int = None, d
         raise HTTPException(status_code=500, detail=f"X upload failed: {error}")
         
     return {"status": "success", "data": response}
+
+@app.post("/clips/{clip_id}/thumbnail/capture")
+async def capture_thumbnail(clip_id: int, timestamp: float, db: AsyncSession = Depends(get_db)):
+    """Capture a specific frame from the video as a thumbnail"""
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == clip_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    from moviepy.editor import VideoFileClip
+    import os
+    
+    try:
+        # Resolve path relative to current app dir if it starts with /app/data
+        current_file_path = clip.file_path
+        if current_file_path.startswith("/app/data"):
+            # If running outside docker, map /app/data to local data
+            if not os.path.exists("/app/data"):
+                current_file_path = current_file_path.replace("/app/data", "data")
+
+        if not os.path.exists(current_file_path):
+             raise Exception(f"Video file not found at {current_file_path}")
+
+        with VideoFileClip(current_file_path) as video:
+            thumb_filename = f"{os.path.basename(clip.file_path).replace('.mp4', '')}_thumb_{int(timestamp)}.jpg"
+            thumb_path = os.path.join("data/clips", thumb_filename)
+            video.save_frame(thumb_path, t=timestamp)
+            
+            # Store the relative path or absolute depending on how it's used
+            # For simplicity, store the same format as file_path
+            clip.thumbnail_path = f"/app/data/clips/{thumb_filename}"
+            await db.commit()
+            
+            return {"status": "success", "thumbnail_url": f"/static/{thumb_filename}"}
+    except Exception as e:
+        print(f"Capture error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to capture frame: {str(e)}")
+
+@app.post("/clips/{clip_id}/thumbnail/upload")
+async def upload_custom_thumbnail(clip_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    """Upload a custom image as a thumbnail for a clip"""
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == clip_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+        
+    import os
+    thumb_filename = f"{os.path.basename(clip.file_path).replace('.mp4', '')}_custom_{file.filename}"
+    thumb_path = os.path.join("data/clips", thumb_filename)
+    
+    with open(thumb_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+        
+    clip.thumbnail_path = f"/app/data/clips/{thumb_filename}"
+    await db.commit()
+    
+    return {"status": "success", "thumbnail_url": f"/static/{thumb_filename}"}
 
 @app.delete("/clips/{clip_id}")
 async def delete_clip(clip_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):

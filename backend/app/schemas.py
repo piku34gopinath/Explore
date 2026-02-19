@@ -25,6 +25,10 @@ class Clip(ClipBase):
     id: int
     video_source_id: int
     file_path: str
+    thumbnail_path: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None
     created_at: datetime
     
     class Config:
@@ -39,6 +43,7 @@ class ClipSuggestionBase(BaseModel):
     reasoning: str
     status: str = "suggested"
     platform_preset: str = "tiktok"
+    suggested_quality: Optional[str] = None
     tags: Optional[str] = None
     title: Optional[str] = None
 
@@ -60,6 +65,8 @@ class VideoSource(VideoSourceBase):
     id: int
     user_id: int
     thumbnail_url: Optional[str] = None
+    source_width: Optional[int] = None
+    source_height: Optional[int] = None
     status: ProcessingStatus
     progress: int = 0
     error_message: Optional[str] = None
@@ -127,6 +134,8 @@ class YouTubeUploadRequest(BaseModel):
     description: str
     tags: str
     privacy_status: str = "private" # private, public, unlisted
+    thumbnail_path: Optional[str] = None
+    quality: Optional[str] = None
 
 class InstagramUploadRequest(BaseModel):
     video_id: int

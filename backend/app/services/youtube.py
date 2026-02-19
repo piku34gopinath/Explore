@@ -91,8 +91,9 @@ class YouTubeService:
             response = request.execute()
             
             channel_info = {}
-            if response['items']:
-                item = response['items'][0]
+            items = response.get('items', [])
+            if items:
+                item = items[0]
                 snippet = item['snippet']
                 statistics = item['statistics']
                 channel_info = {
@@ -148,7 +149,7 @@ class YouTubeService:
             print(f"Error building service: {str(e)}")
             return None, None
 
-    async def upload_video(self, config_model, file_path, title, description, tags, category_id="22", privacy_status="private", db=None):
+    async def upload_video(self, config_model, file_path, title, description, tags, category_id="22", privacy_status="private", thumbnail_path=None, db=None):
         """Uploads a video to YouTube using the secure config model."""
         try:
             service, credentials = self.get_authenticated_service(config_model)
@@ -190,6 +191,23 @@ class YouTubeService:
                 status, response = request.next_chunk()
                 if status:
                     print(f"Uploaded {int(status.progress() * 100)}%")
+
+            # Resolve thumbnail path if it's from current app
+            actual_thumb_path = thumbnail_path
+            if actual_thumb_path and actual_thumb_path.startswith("/app/data"):
+                if not os.path.exists("/app/data"):
+                    actual_thumb_path = actual_thumb_path.replace("/app/data", "data")
+
+            # Upload thumbnail if provided
+            if actual_thumb_path and os.path.exists(actual_thumb_path) and response.get('id'):
+                try:
+                    service.thumbnails().set(
+                        videoId=response['id'],
+                        media_body=MediaFileUpload(thumbnail_path)
+                    ).execute()
+                    print(f"✓ Thumbnail uploaded for {response['id']}")
+                except Exception as thumb_err:
+                    print(f"Thumbnail upload failed: {thumb_err}")
 
             return response, None
 
