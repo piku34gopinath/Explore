@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ai-news-backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/videoclipper
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - explore_app-network
+
+  ai-news-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "4000:4000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8002/api/v1
+    depends_on:
+      - ai-news-backend
+    networks:
+      - explore_app-network
+
+networks:
+  explore_app-network:
+    external: true
