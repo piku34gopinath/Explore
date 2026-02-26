@@ -40,6 +40,8 @@ class VideoSource(Base):
     progress = Column(Integer, default=0) # Percentage 0-100
     ai_model = Column(String, nullable=True) # The model used for this video
     error_message = Column(String, nullable=True)
+    aspect_ratio = Column(String, nullable=True) # "16:9" or "9:16"
+    clip_type = Column(String, nullable=True) # "short", "direct_short", "long"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -87,6 +89,8 @@ class ClipSuggestion(Base):
     platform_preset = Column(String, default="tiktok")  # "tiktok", "youtube_shorts", "instagram_reels"
     suggested_quality = Column(String, nullable=True) # "4k", "1080p", "720p"
     title = Column(String, nullable=True)
+    score_breakdown = Column(Text, nullable=True)    # JSON string of weighted factors
+    is_narrative_complete = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     video_source = relationship("VideoSource", back_populates="suggestions")

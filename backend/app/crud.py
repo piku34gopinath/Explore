@@ -42,7 +42,9 @@ async def create_or_update_user(db: AsyncSession, email: str, full_name: str, av
 async def create_video_source(db: AsyncSession, video: schemas.VideoSourceCreate):
     db_video = models.VideoSource(
         original_url=video.original_url,
-        user_id=video.user_id
+        user_id=video.user_id,
+        clip_type=video.clip_type,
+        aspect_ratio=video.aspect_ratio
     )
     db.add(db_video)
     await db.commit()

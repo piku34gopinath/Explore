@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AI Explorer Command Center</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#6467f2", // Electric Indigo
+                        "accent-cyan": "#06b6d4", // Neon Cyan
+                        "background-light": "#f6f6f8",
+                        "background-dark": "#0a0a0a", // Deep Obsidian
+                        "card-dark": "#1a1a1a", // Dark Graphite
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .glow-indigo {
+            box-shadow: 0 0 15px -3px rgba(100, 103, 242, 0.4);
+        }
+        .glow-cyan {
+            box-shadow: 0 0 15px -3px rgba(6, 182, 212, 0.4);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex">
+<!-- Left Sidebar -->
+<aside class="w-64 flex-shrink-0 border-r border-slate-200 dark:border-primary/20 flex flex-col bg-white dark:bg-background-dark/50 backdrop-blur-xl">
+<div class="p-6 flex items-center gap-3">
+<div class="size-10 bg-primary rounded-lg flex items-center justify-center text-white glow-indigo">
+<span class="material-symbols-outlined">bolt</span>
+</div>
+<div>
+<h1 class="text-lg font-bold tracking-tight text-primary">AI Explorer</h1>
+<p class="text-xs text-slate-500 uppercase tracking-widest font-semibold">Command Center</p>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-2 mt-4">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg bg-primary text-white glow-indigo transition-all" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-medium text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/10 hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">public</span>
+<span class="font-medium text-sm">Global News</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/10 hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">video_library</span>
+<span class="font-medium text-sm">Video Clips</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/10 hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">monitoring</span>
+<span class="font-medium text-sm">Sentiments</span>
+</a>
+<div class="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-primary/10 hover:text-primary transition-all" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-medium text-sm">Settings</span>
+</a>
+</div>
+</nav>
+<div class="p-4">
+<button class="w-full flex items-center justify-center gap-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50 py-3 rounded-lg font-bold text-sm transition-all">
+<span class="material-symbols-outlined text-sm">add_circle</span>
+                New Analysis
+            </button>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col h-screen overflow-hidden">
+<!-- Header -->
+<header class="h-16 flex items-center justify-between px-8 border-b border-slate-200 dark:border-primary/20 bg-white/50 dark:bg-background-dark/50 backdrop-blur-md z-10">
+<div class="flex-1 max-w-xl">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors">search</span>
+<input class="w-full bg-slate-100 dark:bg-card-dark border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-1 focus:ring-primary text-slate-200" placeholder="Search AI database for signals..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="relative p-2 text-slate-500 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 size-2 bg-accent-cyan rounded-full border-2 border-background-dark"></span>
+</button>
+<div class="flex items-center gap-3 pl-6 border-l border-slate-200 dark:border-slate-800">
+<div class="text-right">
+<p class="text-sm font-bold leading-none">Alex Rivera</p>
+<p class="text-[10px] text-slate-500 uppercase font-semibold">Lead Analyst</p>
+</div>
+<img class="size-10 rounded-lg border border-primary/50" data-alt="User profile avatar with neon border" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdzJVpeAzB6ehyn-_XLnTxed1JL-h00WyuSeUI6cTpmeqsVtDqN4Q8GRfLjyg0sxSKBlcuHv3h70oncUhYx5kp7JSHMDTJDNBjLN8BP7w0GQlFxZthAjsfyEO-erd8E9ez4YFBFl2S5rc-VS8bnWNBzAuLbujOTEp25JXAOcX7X_cqdDBdQnNmukq928Swz0oxc1TbXnIfoIk5aKZ9q49bCrNgJZYBfvkVOUPYiemVc0J-JNCHtoHj0eP1jWmICNy9Y1vO-NJFAMk"/>
+</div>
+</div>
+</header>
+<!-- Scrollable Dashboard Content -->
+<main class="flex-1 overflow-y-auto custom-scrollbar p-8">
+<!-- Summary Stats -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+<div class="bg-white dark:bg-card-dark p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2 hover:border-primary/30 transition-all">
+<p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Articles Today</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-bold text-accent-cyan">1,284</h3>
+<span class="text-emerald-500 text-sm font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_up</span> +12%
+                        </span>
+</div>
+</div>
+<div class="bg-white dark:bg-card-dark p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2 hover:border-primary/30 transition-all">
+<p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Processing Speed</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-bold text-accent-cyan">45<span class="text-sm font-normal ml-1">ms</span></h3>
+<span class="text-slate-500 text-sm font-semibold">0% latency</span>
+</div>
+</div>
+<div class="bg-white dark:bg-card-dark p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2 hover:border-primary/30 transition-all">
+<p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Viral Clips</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-bold text-accent-cyan">82</h3>
+<span class="text-rose-500 text-sm font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">trending_down</span> -5%
+                        </span>
+</div>
+</div>
+<div class="bg-white dark:bg-card-dark p-5 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2 hover:border-primary/30 transition-all">
+<p class="text-slate-500 text-xs font-bold uppercase tracking-wider">Active Clusters</p>
+<div class="flex items-end justify-between">
+<h3 class="text-3xl font-bold text-accent-cyan">14</h3>
+<span class="text-emerald-500 text-sm font-semibold">Live stream</span>
+</div>
+</div>
+</section>
+<div class="flex flex-col lg:flex-row gap-8">
+<!-- Left Column: News Clusters (2/3) -->
+<div class="lg:w-2/3 flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<h2 class="text-xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">hub</span>
+                            News Clusters
+                        </h2>
+<button class="text-primary text-sm font-semibold hover:underline">View All Clusters</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Cluster Card 1 -->
+<div class="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden group hover:glow-indigo transition-all duration-300">
+<div class="h-40 overflow-hidden relative">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="Abstract neural network concept with indigo accents" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBW9OMy8eat6yzmmVWMe2uYjtlbHZhRRRpzouT8KtnaeCkOgxRQY8bAxdfWsKbkoLJnld1IY7Jpwboy90z_0ounXETL4wzXg-Z-4i0hVa4w-UXvk9xS7uscbRB-9jq5SvmWFF70Voar0zUEIvVfwEoHSkQDUX4Sirh5RSqxsIpg-w94l_P-oUVf2mTjO63odJKARfHP86fjM9K27p9awwpY2OLIh35n97Wt5xswfDpNAExyHPH4azwJtB4v7jF70RukaYRZ8UyPTpw"/>
+<div class="absolute top-3 left-3 px-2 py-1 bg-primary text-[10px] font-bold uppercase tracking-tighter rounded">Efficiency Gains</div>
+</div>
+<div class="p-5">
+<h4 class="font-bold text-lg mb-1 leading-tight">LLM Efficiency Gains</h4>
+<p class="text-slate-500 text-xs mb-4">124 articles indexed today</p>
+<div class="mb-5 flex items-center gap-4">
+<div class="flex-1 h-8">
+<!-- Mini sparkline simulation -->
+<svg class="w-full h-full text-accent-cyan" viewbox="0 0 100 20">
+<path d="M0 15 Q 10 5, 20 12 T 40 8 T 60 18 T 80 5 T 100 12" fill="none" stroke="currentColor" stroke-width="2"></path>
+</svg>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-slate-500 uppercase font-bold block">Sentiment</span>
+<span class="text-accent-cyan text-xs font-bold uppercase tracking-widest">High</span>
+</div>
+</div>
+<button class="w-full bg-primary py-2.5 rounded-lg text-sm font-bold text-white hover:bg-primary/90 transition-colors">View Details</button>
+</div>
+</div>
+<!-- Cluster Card 2 -->
+<div class="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden group hover:glow-indigo transition-all duration-300">
+<div class="h-40 overflow-hidden relative">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="Human brain interface technological visualization" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqdKEXcJs0uyuN_ljUsjy2CabTbLP8UBlcvfXcni91yujS-xeqys5CvdJWsJdfPi4sxleATNpKnb6CWzVv_qm0Y-JKbk1vkVfz1K9sA6UsDEy6rCdX_ko8Adkhg8lW_8KFg8i3dR4_-I2ZdgGGy6k-LyHsUO3kvdxz8-G01zGzrzOlxax8aYTSkgN03LN-bDOxopdiBM8Rg0k1jP6rAYR0w8VZwM0KBRNi-GuLRnLsPho6MFyUFqTSB0NY9GboiICggZ03qAdshns"/>
+<div class="absolute top-3 left-3 px-2 py-1 bg-primary text-[10px] font-bold uppercase tracking-tighter rounded">Neurotech</div>
+</div>
+<div class="p-5">
+<h4 class="font-bold text-lg mb-1 leading-tight">Neuralink Human Trials</h4>
+<p class="text-slate-500 text-xs mb-4">89 articles indexed today</p>
+<div class="mb-5 flex items-center gap-4">
+<div class="flex-1 h-8">
+<svg class="w-full h-full text-slate-400" viewbox="0 0 100 20">
+<path d="M0 10 Q 15 10, 30 12 T 50 10 T 70 8 T 100 10" fill="none" stroke="currentColor" stroke-width="2"></path>
+</svg>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-slate-500 uppercase font-bold block">Sentiment</span>
+<span class="text-slate-400 text-xs font-bold uppercase tracking-widest">Neutral</span>
+</div>
+</div>
+<button class="w-full bg-primary py-2.5 rounded-lg text-sm font-bold text-white hover:bg-primary/90 transition-colors">View Details</button>
+</div>
+</div>
+<!-- Cluster Card 3 -->
+<div class="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden group hover:glow-indigo transition-all duration-300">
+<div class="h-40 overflow-hidden relative">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="Quantum computing circuit with neon lights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCF6THUCCx7OmcrruT2cJqOIyC_6SGUJtVc-fHZhbpl0Aq_9PFuU2tg_nrmdwaoD5OBxd_8vhXNNcpokyfnqHBKTvGgSm_r57em8i7mHqmf11wQRKiBHphc1wS9OK7_5teTrwyIc2IcA5ogbraguG5arZnq-KXaaNfhrRRSupkqdqn8oKM0iTPq0MMi8CZrkEQ3qju8b7eIYEmwCsIyQ23fUijRL_0B8buXEwQDflN0P2T0gyeYBFYnYKmpPysG2XCztEQjuNs6g6A"/>
+<div class="absolute top-3 left-3 px-2 py-1 bg-primary text-[10px] font-bold uppercase tracking-tighter rounded">Quantum</div>
+</div>
+<div class="p-5">
+<h4 class="font-bold text-lg mb-1 leading-tight">Quantum Breakthroughs</h4>
+<p class="text-slate-500 text-xs mb-4">56 articles indexed today</p>
+<div class="mb-5 flex items-center gap-4">
+<div class="flex-1 h-8">
+<svg class="w-full h-full text-accent-cyan" viewbox="0 0 100 20">
+<path d="M0 18 L 20 14 L 40 10 L 60 5 L 80 2 L 100 0" fill="none" stroke="currentColor" stroke-width="2"></path>
+</svg>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-slate-500 uppercase font-bold block">Sentiment</span>
+<span class="text-accent-cyan text-xs font-bold uppercase tracking-widest">Rising</span>
+</div>
+</div>
+<button class="w-full bg-primary py-2.5 rounded-lg text-sm font-bold text-white hover:bg-primary/90 transition-colors">View Details</button>
+</div>
+</div>
+<!-- Cluster Card 4 -->
+<div class="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden group hover:glow-indigo transition-all duration-300">
+<div class="h-40 overflow-hidden relative">
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="Swarm of autonomous drones flying pattern" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBLbQ67PXjrwPX_0QFu-vWGm7aIsDVRAsAvZvZ2QCO8RFZ4qFEADKRdtwsiXW73m-gwJ_d4XCfFfTFtiOLbQCtYTLToS1O_m7fj_N-RVZVgV4OJq02pVxLwmk3SPE-BMh0heR1QF9ukjpc2jd2qm6b2iJM8hAlmnQIze3Xe5bT63m8IqhdwxT7BwYR82X83ZUIgR3aZhdlsapX4d3un6Oqo3pWeqbiniXMRJmi41Y3nZ3cvPr9nJlXjCME8TxQgIVSoWGr9mYBie1s"/>
+<div class="absolute top-3 left-3 px-2 py-1 bg-primary text-[10px] font-bold uppercase tracking-tighter rounded">Robotics</div>
+</div>
+<div class="p-5">
+<h4 class="font-bold text-lg mb-1 leading-tight">Autonomous Swarms</h4>
+<p class="text-slate-500 text-xs mb-4">210 articles indexed today</p>
+<div class="mb-5 flex items-center gap-4">
+<div class="flex-1 h-8">
+<svg class="w-full h-full text-rose-500" viewbox="0 0 100 20">
+<path d="M0 10 L 20 2 L 40 18 L 60 4 L 80 15 L 100 5" fill="none" stroke="currentColor" stroke-width="2"></path>
+</svg>
+</div>
+<div class="text-right">
+<span class="text-[10px] text-slate-500 uppercase font-bold block">Sentiment</span>
+<span class="text-rose-500 text-xs font-bold uppercase tracking-widest">Volatile</span>
+</div>
+</div>
+<button class="w-full bg-primary py-2.5 rounded-lg text-sm font-bold text-white hover:bg-primary/90 transition-colors">View Details</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Trending Videos (1/3) -->
+<div class="lg:w-1/3 flex flex-col gap-6">
+<div class="flex items-center justify-between">
+<h2 class="text-xl font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">play_circle</span>
+                            Trending Video
+                        </h2>
+</div>
+<div class="bg-white dark:bg-card-dark border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col gap-5 overflow-y-auto max-h-[800px] custom-scrollbar">
+<!-- Video Item 1 -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-lg overflow-hidden relative mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" data-alt="AI robot playing chess video thumbnail" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD3HqklutVVQCuWMVQu48WO7ZdpEeT-aqi5rMgId2A32qWwCHSXCL8AcD5Wmp16KdWANouCzYE3oJLrs2J7a-YfXRi7ZWLKSzQmNIlYSYYGI6wrzAd0IelY5LGi1Ha0-vDL9IkV_QZlv9NUj9G1Nc9xrih7epSm6-rFb1GhhsfALX1UqK7WwB9HYI0DGgiWUEuWADcm0zZSS8IEYy63RqmwzyHSMxlm9y94hUuDxwgVlnxbbCA8XfwVGlYPzOko9-yOObEHqGio61o"/>
+<div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-white text-4xl">play_arrow</span>
+</div>
+<div class="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-bold">12:45</div>
+</div>
+<div>
+<h5 class="font-bold text-sm leading-snug group-hover:text-primary transition-colors">The Future of Generative Agents in Gaming</h5>
+<div class="flex items-center justify-between mt-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">142K Views</span>
+<span class="px-2 py-0.5 bg-primary/20 text-primary text-[10px] font-bold rounded border border-primary/30">9.8 Engagement</span>
+</div>
+</div>
+</div>
+<!-- Video Item 2 -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-lg overflow-hidden relative mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" data-alt="Abstract code flowing in futuristic space" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC89C1GNJZrwrvXTzL2B1xPZ9AAPF7yrE_uFhzdHP5GrxeRaaugJ9Ll-xU8uegFvPELfL44hafYj5sRjf_O4Q4p5brCgjGQwVzTlMi4DXvfIXnSrS4-eNbPWs5_Xp17m-Puin8aefOk6JRLI4Wk9gTJXPmHLqNFJ5ydtaYojOHL_u7xMqsKcpHoVwSvNH-PHT140wNN6w3Irx31gQgDGxa2FeHGeIXOJK0_adcRRxfrXKz5GtaSmd544XBjvaFmvTJE1qB46kjYTsE"/>
+<div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-white text-4xl">play_arrow</span>
+</div>
+<div class="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-bold">08:12</div>
+</div>
+<div>
+<h5 class="font-bold text-sm leading-snug group-hover:text-primary transition-colors">Explaining GPT-5 Potential Architecture</h5>
+<div class="flex items-center justify-between mt-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">89K Views</span>
+<span class="px-2 py-0.5 bg-primary/20 text-primary text-[10px] font-bold rounded border border-primary/30">8.5 Engagement</span>
+</div>
+</div>
+</div>
+<!-- Video Item 3 -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-lg overflow-hidden relative mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" data-alt="Cybernetic hand reaching towards stars" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAmqu9HPE0Cox7pVfIhHwu673YhxgoqxqLsFM5o7vYpH4w2iS7iSsJRZgrOlAd3m7DjuOB4wQeJMSZZAWfLSGr3g2Lrni29sf1sxbmhz3syOwyNxNPwETwjIOMKjCyc2rwv4Mv03zdSOLf7fKZEfIKmbkOgIg4s-1Wk-V_sEJj8S9BR7fwK1p-z2ZcrbHFem2H228Eqea5UIBzMUqkJggFf5Fvs-w7uTgqM6J4lvjIn_rji25Tsm9HZE_Hud_rKeQg1dL2Fzm76fcU"/>
+<div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-white text-4xl">play_arrow</span>
+</div>
+<div class="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-bold">15:30</div>
+</div>
+<div>
+<h5 class="font-bold text-sm leading-snug group-hover:text-primary transition-colors">NVIDIA's New Blackwell Chips Deep Dive</h5>
+<div class="flex items-center justify-between mt-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">215K Views</span>
+<span class="px-2 py-0.5 bg-primary/20 text-primary text-[10px] font-bold rounded border border-primary/30">9.2 Engagement</span>
+</div>
+</div>
+</div>
+<!-- Video Item 4 -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-lg overflow-hidden relative mb-3">
+<img class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" data-alt="Holographic data visualization earth" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBhmD5xcuc7N28LWjau5uqbGoUJFuNGJx3y81s50HJOnagYrbbIZSAIaZu01PpQYCAxK9aUE0y2rNGS9oMVLfK9ca-7tveCtb_bngRQJI4k7Ko6mIYkH3qsR1r4P7utfFJjSr0c9ErhlHrUZoTgVMDQZFb6UQGm40frF3v3LrxSFvlQF2_d_G21IUbjaF9jkxE1tNKXX3HL1RJZU9fhoi0gURoJxkgc-6zb6soMmPqAN4siqnIokEgbVx3rmE9MtjyTf7VxMr2Tvew"/>
+<div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-white text-4xl">play_arrow</span>
+</div>
+<div class="absolute bottom-2 right-2 bg-black/80 px-1.5 py-0.5 rounded text-[10px] font-bold">04:20</div>
+</div>
+<div>
+<h5 class="font-bold text-sm leading-snug group-hover:text-primary transition-colors">The Ethical Dilemma of AI Replicants</h5>
+<div class="flex items-center justify-between mt-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">42K Views</span>
+<span class="px-2 py-0.5 bg-primary/20 text-primary text-[10px] font-bold rounded border border-primary/30">7.1 Engagement</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Footer Status Bar -->
+<footer class="h-10 border-t border-slate-200 dark:border-primary/20 bg-white dark:bg-background-dark/80 backdrop-blur-md px-8 flex items-center justify-between text-[11px] font-semibold text-slate-500 tracking-wide uppercase">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="size-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+<span class="text-emerald-500">System Online</span>
+</div>
+<span class="opacity-30">|</span>
+<span>Uptime: 14d 06h 22m</span>
+</div>
+<div class="flex items-center gap-4">
+<span>V 2.4.0 (Mission Control Build)</span>
+<span class="opacity-30">|</span>
+<span>© 2024 AI Explorer - Command Center Alpha</span>
+</div>
+</footer>
+</div>
+</body></html>

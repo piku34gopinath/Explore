@@ -1,6 +1,7 @@
 # Environment variables
 .env
 backend/.env
+node_modules/
 
 # Python
 backend/venv/

@@ -47,6 +47,15 @@ async def migrate():
     except Exception as e:
         print(f"clip_suggestions columns might already exist: {e}")
 
+    # Add narrative columns to clip_suggestions
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE clip_suggestions ADD COLUMN score_breakdown TEXT;"))
+            await conn.execute(text("ALTER TABLE clip_suggestions ADD COLUMN is_narrative_complete BOOLEAN DEFAULT TRUE;"))
+            print("Added score_breakdown and is_narrative_complete to clip_suggestions")
+    except Exception as e:
+        print(f"narrative columns might already exist: {e}")
+
     # Add is_primary
     try:
         async with engine.begin() as conn:
@@ -54,6 +63,15 @@ async def migrate():
             print("Added column is_primary")
     except Exception as e:
         print(f"Column is_primary might already exist: {e}")
+
+    # Add aspect_ratio and clip_type to video_sources
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE video_sources ADD COLUMN aspect_ratio VARCHAR;"))
+            await conn.execute(text("ALTER TABLE video_sources ADD COLUMN clip_type VARCHAR;"))
+            print("Added aspect_ratio and clip_type to video_sources")
+    except Exception as e:
+        print(f"video_sources new columns might already exist: {e}")
         
     print("Migration process completed.")
 

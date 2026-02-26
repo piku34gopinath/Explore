@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ThumbnailSelector } from "@/components/ThumbnailSelector";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -53,6 +54,8 @@ interface ClipSuggestion {
   suggested_quality?: string;
   title?: string;
   tags?: string;
+  score_breakdown?: string;
+  is_narrative_complete?: boolean;
 }
 
 interface Video {
@@ -498,9 +501,16 @@ export default function VideoPage() {
                       {getViralAngleEmoji(suggestion.viral_angle)}
                       <span className="capitalize text-lg">{suggestion.title || suggestion.viral_angle}</span>
                     </span>
-                    <div className={`text-right ${getViralScoreColor(suggestion.viral_score)}`}>
-                      <div className="text-3xl font-bold">{suggestion.viral_score}</div>
-                      <div className="text-xs opacity-80 font-medium">Viral Score</div>
+                    <div className="flex flex-col gap-1 items-end">
+                      <div className={`text-right ${getViralScoreColor(suggestion.viral_score)}`}>
+                        <div className="text-3xl font-bold">{suggestion.viral_score}</div>
+                        <div className="text-xs opacity-80 font-medium">Viral Score</div>
+                      </div>
+                      {suggestion.is_narrative_complete && (
+                        <Badge variant="outline" className="text-[10px] font-black uppercase tracking-tighter bg-green-500/10 text-green-600 border-green-500/20 py-0 h-4">
+                          Narrative Complete
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -519,6 +529,17 @@ export default function VideoPage() {
                     <h4 className="text-sm font-semibold text-muted-foreground mb-1">💡 Why This Will Go Viral</h4>
                     <p className="text-sm leading-relaxed text-muted-foreground">{suggestion.reasoning}</p>
                   </div>
+
+                  {suggestion.score_breakdown && (
+                    <div className="grid grid-cols-2 gap-2 p-3 bg-muted/30 rounded-xl border border-muted">
+                      {Object.entries(JSON.parse(suggestion.score_breakdown.replace(/'/g, '"'))).map(([key, value]) => (
+                        <div key={key} className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{key.replace(/_/g, ' ')}</span>
+                          <span className="text-[11px] font-black font-mono">{value as number}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="pt-3 flex flex-col gap-3">
                     {suggestion.status === 'suggested' && (
@@ -916,54 +937,20 @@ export default function VideoPage() {
                 ) : (
                   <>
                     <div className="space-y-6">
-                      {/* Thumbnail Selection */}
-                      <div className="grid gap-2 outline-none group">
-                        <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Thumbnail</label>
-                        <div className="flex gap-4 items-start">
-                          <div className="relative aspect-video w-40 bg-black rounded-lg overflow-hidden border-2 border-primary/20">
-                            {selectedClip?.thumbnail_path ? (
-                              <img src={`${API_URL}/static/${selectedClip?.thumbnail_path?.split('/').pop()}`} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-muted-foreground text-[10px]">No Preview</div>
-                            )}
-                            {capturingThumbnail && (
-                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                <Loader2 className="h-4 w-4 text-white animate-spin" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 flex flex-col gap-2">
-                            <div className="flex gap-2">
-                               <Button variant="outline" size="sm" className="flex-1 text-[10px]" onClick={() => selectedClip && handleCaptureThumbnail(selectedClip.id)}>
-                                 Capture Frame
-                               </Button>
-                               <Button variant="outline" size="sm" className="flex-1 text-[10px]" onClick={() => document.getElementById('thumb-upload')?.click()}>
-                                 Upload Custom
-                               </Button>
-                               <input 
-                                 type="file" 
-                                 id="thumb-upload" 
-                                 className="hidden" 
-                                 accept="image/*" 
-                                 onChange={(e) => selectedClip && handleUploadThumbnail(selectedClip.id, e)} 
-                               />
-                            </div>
-                            <div className="space-y-1">
-                               <label className="text-[10px] font-bold text-muted-foreground">Frame Timestamp (seconds):</label>
-                               <Input 
-                                 type="number" 
-                                 step="0.1" 
-                                 value={isNaN(thumbnailTimestamp) ? "" : thumbnailTimestamp} 
-                                 onChange={(e) => {
-                                   const val = e.target.value;
-                                   setThumbnailTimestamp(val === "" ? NaN : parseFloat(val));
-                                 }}
-                                 className="h-7 text-xs"
-                               />
-                            </div>
-                          </div>
+                      {selectedClip && (
+                        <div className="grid gap-2 border-b pb-8">
+                          <label className="text-sm font-black uppercase tracking-widest text-muted-foreground italic">Thumbnail</label>
+                          <ThumbnailSelector 
+                            clip={selectedClip}
+                            apiUrl={API_URL}
+                            onCapture={handleCaptureThumbnail}
+                            onUpload={(file) => {
+                              const event = { target: { files: [file] } } as any;
+                              return handleUploadThumbnail(selectedClip.id, event);
+                            }}
+                          />
                         </div>
-                      </div>
+                      )}
 
                       <div className="grid gap-2 outline-none group">
                         <label className="text-sm font-black uppercase tracking-widest text-muted-foreground group-focus-within:text-primary transition-colors italic">Post Title</label>

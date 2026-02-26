@@ -194,9 +194,9 @@ class YouTubeService:
 
             # Resolve thumbnail path if it's from current app
             actual_thumb_path = thumbnail_path
-            if actual_thumb_path and actual_thumb_path.startswith("/app/data"):
-                if not os.path.exists("/app/data"):
-                    actual_thumb_path = actual_thumb_path.replace("/app/data", "data")
+            if actual_thumb_path and actual_thumb_path.startswith("data"):
+                # Path is already relative, ensure it exists or adjust
+                pass
 
             # Upload thumbnail if provided
             if actual_thumb_path and os.path.exists(actual_thumb_path) and response.get('id'):

@@ -182,8 +182,8 @@ def validate_timestamp_diversity(suggestions: list, video_duration: int, min_gap
 
 def analyze_for_viral_clips(transcript: str, metadata: dict, provider: str = "openai", model: str = "gpt-4o", api_key: str = None, platform_preset: str = "tiktok") -> list:
     """
-    Analyze video transcript and metadata to identify 2-3 segments with highest viral potential.
-    
+    Analyze video transcript and metadata to identify segments with highest viral potential
+    and narrative completeness.
     """
     
     # Use intelligent timeline instead of truncating
@@ -191,95 +191,70 @@ def analyze_for_viral_clips(transcript: str, metadata: dict, provider: str = "op
     processed_transcript = create_transcript_timeline(transcript, video_duration, max_chars=8000)
     
     platform_guidelines = {
-        "tiktok": "TikTok (max 60s, 9:16 vertical, fast-paced, trending sounds)",
-        "youtube_shorts": "YouTube Shorts (max 60s, 9:16 vertical, retention-focused)",
-        "instagram_reels": "Instagram Reels (max 90s, 9:16 vertical, aesthetic focus)"
+        "tiktok": "TikTok (9:16 vertical, fast-paced, high hook strength)",
+        "youtube_shorts": "YouTube Shorts (9:16 vertical, retention-focused, deep value)",
+        "instagram_reels": "Instagram Reels (9:16 vertical, aesthetic & relatable)"
     }
     
     platform_desc = platform_guidelines.get(platform_preset, platform_guidelines["tiktok"])
     
-    prompt = f"""You are an expert viral content strategist analyzing a {video_duration}-second video for {platform_desc}.
+    prompt = f"""You are an elite AI Video Editor and Viral Content Strategist. Your goal is to extract self-contained, high-impact stories from a {video_duration}-second video for {platform_desc}.
 
-YOUR MISSION: Find 2-3 DIFFERENT viral-worthy moments scattered throughout the ENTIRE video.
+### YOUR CORE ARCHITECTURE: NARRATIVE INTELLIGENCE
+Instead of cutting at random timestamps, you act as a storyteller. You must identify "Narrative Units" that have a clear beginning, middle, and end.
 
-VIDEO METADATA:
-- Title: {metadata.get('title', 'Unknown')}
-- Duration: {video_duration} seconds ({video_duration//60}min {video_duration%60}s)
-- Channel: {metadata.get('channel', 'Unknown')}
-
-FULL VIDEO CONTENT (with timestamps):
+### VIDEO CONTEXT
+- **Title**: {metadata.get('title', 'Unknown')}
+- **Duration**: {video_duration} seconds
+- **Channel**: {metadata.get('channel', 'Unknown')}
+- **Transcript**:
 {processed_transcript}
 
-🔥 VIRAL ANALYSIS CRITERIA:
-1. **Instant Hook** - First 3 seconds must grab attention (visual/audio surprise)
-2. **Emotional Spike** - Joy, shock, anger, inspiration, satisfaction, fear
-3. **Unexpected Twist** - Plot reveals, surprising facts, "wait what?" moments
-4. **Complete Story** - Clear arc with setup, peak, and satisfying conclusion in 15-60s
-5. **High Energy** - Fast pace, dynamic delivery, exciting content
-6. **Share-Worthy** - Makes viewers want to send to friends/tag people
-7. **Trend Alignment** - Matches current viral patterns on {platform_preset}
+### CLIP STRUCTURE REQUIREMENTS
+Each clip MUST follow this flow to be accepted:
+1. **The Hook (0-5s)**: Must start with a strong claim, shocking fact, direct question, or high-energy statement. NO mid-sentence starts.
+2. **The Narrative Core**: Delivers the meat of the story, action, or explanation. Must be understandable without the rest of the video.
+3. **The Clean Conclusion**: Must end on a resolved thought, a "mic drop" moment, or a natural scene transition. NO mid-thought cuts.
 
-🚨 CRITICAL TIMESTAMP RULES - VIOLATIONS WILL BE REJECTED:
+### DURATION LOGIC
+- **Target Range**: 45 to 90 seconds.
+- **Narrative Completeness Rule**: Duration is SECONDARY to context. If a story needs 100 seconds to be complete, EXTEND it. If it’s a tight 30s punchline, KEEP it.
+- **Breakpoint Detection**: Use transcript timestamps to align start/end with natural pauses (>0.5s), sentence endings, or topic shifts.
 
-❌ FORBIDDEN PATTERNS (Auto-Reject):
-- All clips starting between 0:00-{min(60, video_duration*0.1):.0f}s (beginning bunching)
-- Clips starting within 60 seconds of each other
-- Three variations of the same moment (0:00-0:15, 0:00-0:30, 0:00-0:45)
-- Sequential cutting from start without analyzing full video
+### SCORING SYSTEM (Weighted Factors)
+For each candidate segment, calculate:
+- **Hook Strength (25%)**: Does the first 3-5 seconds stop the scroll?
+- **Message Clarity (20%)**: Is the point understandable in isolation?
+- **Emotional Engagement (20%)**: Does it trigger Joy, Shock, Curiosity, or Inspiration?
+- **Visual Dynamic Score (15%)**: Based on transcript hints (motion, slide changes, reactions).
+- **Context Completeness (20%)**: Does it feel like a whole story or a random fragment?
 
-✅ REQUIRED PATTERNS:
-- Clips from DIFFERENT parts of video (beginning, middle, end)
-- Minimum 60-second gap between start times
-- Each clip captures a DISTINCT viral moment
-- For {video_duration//60}min+ videos: At least one clip from second half
+### OUTPUT FORMAT (JSON Array)
+Return 2-4 clips ordered by Total Score.
 
-💡 EXAMPLE GOOD SUGGESTIONS for {video_duration}s video:
-- Clip 1: 45-89s → Shocking reveal from early section (viral_angle: "surprising")
-- Clip 2: {video_duration//2-30}-{video_duration//2+30}s → Funny blooper from middle (viral_angle: "funny")
-- Clip 3: {video_duration-120}-{video_duration-60}s → Emotional climax near end (viral_angle: "emotional")
-^^ Note how these are spread across DIFFERENT timestamps!
-
-💀 EXAMPLE BAD SUGGESTIONS (Will be REJECTED):
-- Clip 1: 0-15s ❌
-- Clip 2: 0-30s ❌  
-- Clip 3: 0-45s ❌
-^^ This is lazy sequential cutting, NOT viral moment detection!
-
-RETURN JSON ARRAY (2-3 clips, ordered by viral_score DESC):
 [
   {{
-    "start_time": 142.5,  // SECONDS as number, not timestamp string
-    "end_time": 186.2,    // Must be 15-60s after start_time
-    "viral_angle": "surprising",  // One of: emotional/funny/surprising/inspirational/educational/satisfying
-    "viral_score": 95,    // 0-100 likelihood to go viral
-    "hook_description": "Host's jaw drops seeing test results",  // What happens in first 3 seconds
-    "reasoning": "Opens with visceral shock reaction (instant hook), delivers unexpected scientific finding that contradicts common belief (surprise factor), ends on satisfying 'mind blown' moment. Perfect shareability.",
-    "title": "Mukund Jha on Why Coding is NOT Dead", // Unique, content-specific title from the video content
-    "viral_hashtags": "CodingTips,AIRevolution,FutureOfTech,SoftwareEngineering,TechTrends,Programming,DevLife,ViralShorts,TrendingNow,MustWatch,TechShock,MindBlowing"  // 10-15 HIGHLY RELEVANT, context-aware hashtags WITHOUT # symbol, comma-separated, no spaces after commas. Derive these from the video's specific title, content, and detected topic.
+    "start_time": 120.5, 
+    "end_time": 195.2,
+    "title": "The Brutal Truth About OpenAI's Strategy",
+    "viral_angle": "surprising", 
+    "viral_score": 94,
+    "is_narrative_complete": true,
+    "score_breakdown": {{
+      "hook_strength": 95,
+      "message_clarity": 90,
+      "emotional_engagement": 88,
+      "visual_dynamic_score": 85,
+      "context_completeness": 100
+    }},
+    "hook_description": "Starts with 'Sam Altman just made a move that changes everything...'",
+    "reasoning": "The clip begins with an immediate high-stakes hook. It covers the full logic of the move and concludes with a definitive prediction about the future, making it feel like a complete mini-documentary.",
+    "viral_hashtags": "OpenAI,SamAltman,FutureOfAI,TechNews,AIRevolution,BusinessStrategy,SiliconValley"
   }}
 ]
 
-📱 HASHTAG GUIDELINES:
-- Generate 10-15 viral, SEO-friendly hashtags per clip (no # symbol, comma-separated)
-- MUST be derived from: Specific Video Title, Transcript Keywords, Topic Category, and Viral Angle
-- Mix of:
-  1. Ultra-Specific (5-7): Directly related to the clip's unique content (e.g., "G-WagonParking", "UnexpectedManeuver", "WifeDriving")
-  2. Niche/Category (3-5): (e.g., "CarEnthusiast", "LuxuryCars", "DrivingSkills")
-  3. Broad Trending (2-3): (e.g., "ViralShorts", "TrendingNow", "ReelsIndia", "MustWatch")
-- Capitalize words (TikTok/Instagram style): "AIRevolution" not "airevolution"
-- NO spaces after commas: "AI,Tech,Viral" not "AI, Tech, Viral"
-- AVOID generic hashtags like "Video", "Clip", "Shorts" unless contextually necessary.
-
-⚠️ VALIDATION CHECKLIST:
-- [ ] Each start_time is DIFFERENT (not all starting at 0)
-- [ ] Clips span across video timeline, not clustered at beginning  
-- [ ] Each viral_angle is DIFFERENT (diversity)
-- [ ] Each clip is 15-60 seconds long
-- [ ] Each clip has a highly UNIQUE, content-specific title
-- [ ] Timestamps are realistic for video duration ({video_duration}s)
-- [ ] viral_hashtags field exists with 5-7 hashtags
-
-ONLY return the JSON array, no other text."""
+🚨 IMPORTANT: Use REAL timestamps from the transcript. Ensure clips are spread across the video.
+"""
     
     try:
         client = get_client(provider, api_key, model)

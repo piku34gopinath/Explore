@@ -46,6 +46,8 @@ class ClipSuggestionBase(BaseModel):
     suggested_quality: Optional[str] = None
     tags: Optional[str] = None
     title: Optional[str] = None
+    score_breakdown: Optional[str] = None
+    is_narrative_complete: bool = True
 
 class ClipSuggestion(ClipSuggestionBase):
     id: int
@@ -60,6 +62,8 @@ class VideoSourceBase(BaseModel):
 
 class VideoSourceCreate(VideoSourceBase):
     user_id: int # For simplicity in MVP, passing user_id directly
+    clip_type: Optional[str] = "short"
+    aspect_ratio: Optional[str] = "16:9"
 
 class VideoSource(VideoSourceBase):
     id: int
@@ -71,6 +75,8 @@ class VideoSource(VideoSourceBase):
     progress: int = 0
     error_message: Optional[str] = None
     title: Optional[str] = None
+    clip_type: Optional[str] = None
+    aspect_ratio: Optional[str] = None
     created_at: datetime
     ai_model: Optional[str] = None
     clips: List[Clip] = []

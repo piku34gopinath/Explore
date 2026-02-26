@@ -12,6 +12,7 @@ def get_video_metadata(url: str) -> dict:
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     }
     
     try:
@@ -46,6 +47,7 @@ def get_video_transcript(url: str) -> str:
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     }
     
     try:
@@ -75,7 +77,7 @@ def get_video_transcript(url: str) -> str:
         return ""  # Return empty string on failure
 
 
-def download_video_segment(url: str, start_time: float, end_time: float, output_dir: str = "/app/data/segments") -> str:
+def download_video_segment(url: str, start_time: float, end_time: float, output_dir: str = "data/segments") -> str:
     """
     Download ONLY a specific segment of the video using yt-dlp's native segment support.
     
@@ -95,12 +97,14 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
     # This is MORE efficient than downloading full video then cropping
     # Use absolute best quality available
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
+        'format': 'best', # Use best single file for segment download stability
         'merge_output_format': 'mp4',
         'outtmpl': output_template,
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://www.google.com/',
         'external_downloader': 'ffmpeg',
         'external_downloader_args': {
             'ffmpeg_i': [
@@ -122,7 +126,7 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
         raise e
 
 
-def download_video(url: str, output_dir: str = "/app/data/downloads") -> dict:
+def download_video(url: str, output_dir: str = "data/downloads") -> dict:
     """
     Legacy function - downloads entire video.
     Kept for backward compatibility but should be avoided for cost optimization.

@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,8 +176,8 @@ async def submit_video(video: schemas.VideoSourceCreate, db: AsyncSession = Depe
     # Create video entry in DB
     db_video = await crud.create_video_source(db=db, video=video)
     
-    # Trigger Celery task
-    tasks.process_video_task.delay(db_video.id, db_video.original_url)
+    # Trigger Celery task based on clip_type
+    tasks.process_video_task.delay(db_video.id, db_video.original_url, db_video.clip_type, db_video.aspect_ratio)
     
     return db_video
 
@@ -199,7 +199,7 @@ async def download_clip(filename: str):
     from fastapi.responses import FileResponse
     import os
     
-    file_path = f"/app/data/clips/{filename}"
+    file_path = f"data/clips/{filename}"
     
     # Check if file exists
     if not os.path.exists(file_path):
@@ -811,7 +811,7 @@ async def capture_thumbnail(clip_id: int, timestamp: float, db: AsyncSession = D
             
             # Store the relative path or absolute depending on how it's used
             # For simplicity, store the same format as file_path
-            clip.thumbnail_path = f"/app/data/clips/{thumb_filename}"
+            clip.thumbnail_path = f"data/clips/{thumb_filename}"
             await db.commit()
             
             return {"status": "success", "thumbnail_url": f"/static/{thumb_filename}"}
@@ -872,3 +872,65 @@ async def delete_clip(clip_id: int, db: AsyncSession = Depends(get_db), current_
             print(f"Failed to delete file {clip.file_path}: {e}")
     
     return {"status": "deleted", "clip_id": clip_id}
+
+
+@app.post("/videos/upload-file", response_model=schemas.VideoSource)
+async def upload_video_file(
+    file: UploadFile = File(...),
+    clip_type: str = Form(default="short"),   # "short" or "long"
+    aspect_ratio: str = Form(default="16:9"),  # "16:9" or "9:16" (only used for long clips)
+    user_id: int = Form(default=1),
+    db: AsyncSession = Depends(database.get_db)
+):
+    """
+    Upload a local video file and process it.
+    - clip_type="short": AI analyzes and extracts viral short clips (9:16 output)
+    - clip_type="long":  Re-encodes full video to the chosen aspect_ratio
+        - aspect_ratio="16:9" → 1920×1080 horizontal (YouTube)
+        - aspect_ratio="9:16" → 1080×1920 vertical   (TikTok / Reels / Shorts)
+    """
+    import uuid
+    import aiofiles
+
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("video/"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a video file.")
+
+    # Save the uploaded file to disk
+    upload_dir = "data/uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    ext = os.path.splitext(file.filename or "video.mp4")[1] or ".mp4"
+    unique_filename = f"{uuid.uuid4().hex}{ext}"
+    file_path = os.path.join(upload_dir, unique_filename)
+
+    async with aiofiles.open(file_path, "wb") as out_file:
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            await out_file.write(chunk)
+
+    # Create a pseudo-URL as reference for the file
+    file_url = f"file://{os.path.abspath(file_path)}"
+    title = os.path.splitext(file.filename or "Uploaded Video")[0]
+
+    # Create video DB record
+    video_data = schemas.VideoSourceCreate(original_url=file_url, user_id=user_id)
+    db_video = await crud.create_video_source(db=db, video=video_data)
+
+    # Set the title from the filename right away
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(models.VideoSource)
+        .where(models.VideoSource.id == db_video.id)
+        .values(title=title)
+    )
+    await db.commit()
+    await db.refresh(db_video)
+
+    # Dispatch the appropriate task
+    if clip_type == "long":
+        tasks.process_long_clip_task.delay(db_video.id, file_path, aspect_ratio)
+    else:
+        tasks.process_uploaded_video_task.delay(db_video.id, file_path)
+
+    return db_video
+
