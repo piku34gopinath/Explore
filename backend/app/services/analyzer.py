@@ -318,7 +318,18 @@ ONLY return the JSON array, no other text."""
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}]
             )
-            suggestions = json.loads(response.content[0].text)
+            text = response.content[0].text
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0].strip()
+            result = json.loads(text)
+            if isinstance(result, dict) and 'clips' in result:
+                suggestions = result['clips']
+            elif isinstance(result, list):
+                suggestions = result
+            else:
+                suggestions = list(result.values())[0] if result else []
             
             # VALIDATE TIMESTAMP DIVERSITY
             is_valid, error_msg = validate_timestamp_diversity(suggestions, video_duration)

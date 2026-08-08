@@ -238,6 +238,124 @@ async def disconnect_youtube_config(db: AsyncSession, user_id: int, config_id: i
     
     await db.commit()
 
+# ==================== Instagram Config CRUD ====================
+
+async def save_instagram_config(db: AsyncSession, user_id: int, token_data: dict, ig_info: dict):
+    # Update if this IG account is already connected for the user
+    result = await db.execute(
+        select(models.InstagramConfig).filter(
+            models.InstagramConfig.user_id == user_id,
+            models.InstagramConfig.ig_user_id == ig_info.get("ig_user_id"),
+        )
+    )
+    existing = result.scalars().first()
+
+    if existing:
+        existing.access_token = token_data["access_token"]
+        existing.page_access_token = token_data.get("page_access_token")
+        existing.page_id = ig_info.get("page_id")
+        existing.username = ig_info.get("username")
+        existing.name = ig_info.get("name")
+        existing.profile_picture_url = ig_info.get("profile_picture_url")
+        existing.followers_count = ig_info.get("followers_count")
+        existing.is_connected = True
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    result = await db.execute(
+        select(models.InstagramConfig).filter(models.InstagramConfig.user_id == user_id)
+    )
+    is_first = len(result.scalars().all()) == 0
+
+    new_config = models.InstagramConfig(
+        user_id=user_id,
+        access_token=token_data["access_token"],
+        page_access_token=token_data.get("page_access_token"),
+        page_id=ig_info.get("page_id"),
+        ig_user_id=ig_info.get("ig_user_id"),
+        username=ig_info.get("username"),
+        name=ig_info.get("name"),
+        profile_picture_url=ig_info.get("profile_picture_url"),
+        followers_count=ig_info.get("followers_count"),
+        is_connected=True,
+        is_primary=is_first,
+    )
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    return new_config
+
+async def get_instagram_config(db: AsyncSession, user_id: int):
+    """Get primary Instagram config (fallback to first)."""
+    result = await db.execute(
+        select(models.InstagramConfig).filter(
+            models.InstagramConfig.user_id == user_id,
+            models.InstagramConfig.is_primary == True,
+        )
+    )
+    config = result.scalars().first()
+    if not config:
+        result = await db.execute(
+            select(models.InstagramConfig).filter(models.InstagramConfig.user_id == user_id).limit(1)
+        )
+        config = result.scalars().first()
+    return config
+
+async def get_all_instagram_configs(db: AsyncSession, user_id: int):
+    result = await db.execute(
+        select(models.InstagramConfig)
+        .filter(models.InstagramConfig.user_id == user_id)
+        .order_by(models.InstagramConfig.is_primary.desc(), models.InstagramConfig.created_at.desc())
+    )
+    return result.scalars().all()
+
+async def get_instagram_config_by_id(db: AsyncSession, user_id: int, config_id: int):
+    result = await db.execute(
+        select(models.InstagramConfig).filter(
+            models.InstagramConfig.user_id == user_id,
+            models.InstagramConfig.id == config_id,
+        )
+    )
+    return result.scalars().first()
+
+async def set_primary_instagram_account(db: AsyncSession, user_id: int, config_id: int):
+    from sqlalchemy import update
+    await db.execute(
+        update(models.InstagramConfig)
+        .where(models.InstagramConfig.user_id == user_id)
+        .values(is_primary=False)
+    )
+    await db.execute(
+        update(models.InstagramConfig)
+        .where(
+            models.InstagramConfig.user_id == user_id,
+            models.InstagramConfig.id == config_id,
+        )
+        .values(is_primary=True)
+    )
+    await db.commit()
+    return await get_instagram_config_by_id(db, user_id, config_id)
+
+async def disconnect_instagram_config(db: AsyncSession, user_id: int, config_id: int = None):
+    from sqlalchemy import delete
+    if config_id is None:
+        await db.execute(
+            delete(models.InstagramConfig).where(models.InstagramConfig.user_id == user_id)
+        )
+    else:
+        deleted = await db.execute(
+            delete(models.InstagramConfig).where(
+                models.InstagramConfig.user_id == user_id,
+                models.InstagramConfig.id == config_id,
+            )
+        )
+        if deleted.rowcount > 0:
+            remaining = await get_all_instagram_configs(db, user_id)
+            if remaining and not any(c.is_primary for c in remaining):
+                await set_primary_instagram_account(db, user_id, remaining[0].id)
+    await db.commit()
+
 async def get_video(db: AsyncSession, video_id: int):
     result = await db.execute(
         select(models.VideoSource)

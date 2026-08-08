@@ -26,8 +26,8 @@ def process_video_task(video_id: int, video_url: str):
         from .models import AIConfig
         ai_config = db.query(AIConfig).filter(AIConfig.user_id == video.user_id, AIConfig.is_active == True).first()
         
-        provider = "openai"
-        model = "gpt-4o"
+        provider = "gemini"
+        model = "gemini-2.0-flash"
         api_key = None
         
         if ai_config:
@@ -156,11 +156,25 @@ def process_video_task(video_id: int, video_url: str):
         clips_created = 0
         for segment_path, suggestion in segment_paths:
             try:
-                # Create vertical clip from the segment
+                # Transcribe the segment for clip-relative captions (best-effort).
+                # The segment audio starts at 0, so Whisper timings align with the clip.
+                # Prefer word-level timings (karaoke); fall back to phrase SRT blocks.
+                segment_words, segment_srt = None, None
+                try:
+                    segment_words = transcriber.transcribe_words(segment_path)
+                    if not segment_words:
+                        segment_srt = transcriber.transcribe_audio(segment_path)
+                except Exception as te:
+                    print(f"Caption transcription skipped: {te}")
+
+                # Create vertical clip from the segment (karaoke captions + pulsing emoji)
                 output_path = editor.create_vertical_clip(
                     source_path=segment_path,
                     start_time="00:00:00",  # Segment already starts at correct time
-                    end_time=f"00:00:{int(suggestion.end_time - suggestion.start_time)}"
+                    end_time=f"00:00:{int(suggestion.end_time - suggestion.start_time)}",
+                    subtitles_srt=segment_srt,
+                    viral_angle=suggestion.viral_angle,
+                    word_timings=segment_words,
                 )
                 
                 # Save to database

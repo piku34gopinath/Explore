@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from sqlalchemy import func
 import os
+import asyncio
 
 from . import models, schemas, crud, database, tasks
 from .database import engine
@@ -22,7 +23,7 @@ app.mount("/static", StaticFiles(directory="data/clips"), name="static")
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
     allow_origin_regex="https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
@@ -135,6 +136,16 @@ async def startup():
         if client_secret:
             await crud.set_system_config(db, "google_client_secret", client_secret)
             print(f"Synced GOOGLE_CLIENT_SECRET from env to DB")
+
+        # Sync Meta/Facebook credentials to DB if present in env
+        fb_app_id = os.getenv("FACEBOOK_APP_ID")
+        fb_app_secret = os.getenv("FACEBOOK_APP_SECRET")
+        if fb_app_id:
+            await crud.set_system_config(db, "facebook_app_id", fb_app_id)
+            print("Synced FACEBOOK_APP_ID from env to DB")
+        if fb_app_secret:
+            await crud.set_system_config(db, "facebook_app_secret", fb_app_secret)
+            print("Synced FACEBOOK_APP_SECRET from env to DB")
 
 @app.get("/")
 async def root():
@@ -251,8 +262,10 @@ async def get_system_config_route(key: str, db: AsyncSession = Depends(get_db)):
 
 # YouTube Integration Endpoints
 from .services.youtube import YouTubeService
+from .services.instagram import InstagramService
 
 youtube_service = YouTubeService()
+instagram_service = InstagramService()
 
 @app.get("/auth/youtube/url", response_model=schemas.YouTubeAuthResponse)
 async def get_youtube_auth_url(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
@@ -480,6 +493,107 @@ async def upload_to_youtube(request: schemas.YouTubeUploadRequest, account_id: i
     await db.commit()
         
     return {"status": "success", "youtube_id": youtube_id, "channel": config.channel_name}
+
+# ==================== Instagram Reels Endpoints ====================
+
+@app.get("/auth/instagram/url", response_model=schemas.InstagramAuthResponse)
+async def get_instagram_auth_url(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    app_id = await crud.get_system_config(db, "facebook_app_id")
+    app_secret = await crud.get_system_config(db, "facebook_app_secret")
+    url, error = instagram_service.get_auth_url(app_id=app_id, app_secret=app_secret)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    return {"auth_url": url}
+
+@app.post("/auth/instagram/callback")
+async def instagram_auth_callback(request: Request, code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    app_id = await crud.get_system_config(db, "facebook_app_id")
+    app_secret = await crud.get_system_config(db, "facebook_app_secret")
+
+    token_data, ig_info = instagram_service.exchange_code_for_token(code, app_id=app_id, app_secret=app_secret)
+    if not token_data:
+        raise HTTPException(status_code=400, detail=f"Failed to connect Instagram: {ig_info}")
+
+    await crud.save_instagram_config(db, user_id, token_data, ig_info)
+    return {"status": "connected", "username": ig_info.get("username")}
+
+@app.get("/auth/instagram/status")
+async def get_instagram_status(db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    configs = await crud.get_all_instagram_configs(db, user_id)
+    if not configs:
+        return {"is_connected": False, "accounts": []}
+    accounts = [{
+        "id": c.id,
+        "is_connected": True,
+        "username": c.username,
+        "name": c.name,
+        "profile_picture_url": c.profile_picture_url,
+        "followers_count": c.followers_count,
+        "is_primary": c.is_primary,
+    } for c in configs]
+    return {"is_connected": True, "accounts": accounts}
+
+@app.post("/auth/instagram/disconnect")
+async def disconnect_instagram(account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+    await crud.disconnect_instagram_config(db, user_id, config_id=account_id)
+    return {"status": "disconnected"}
+
+@app.post("/upload/instagram")
+async def upload_to_instagram(request: schemas.InstagramUploadRequest, account_id: int = None, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user_id = current_user.id if current_user else 1
+
+    if account_id:
+        config = await crud.get_instagram_config_by_id(db, user_id, account_id)
+    else:
+        config = await crud.get_instagram_config(db, user_id)
+    if not config:
+        raise HTTPException(status_code=400, detail="Instagram account not connected. Connect it in Settings first.")
+
+    stmt = select(models.GeneratedClip).where(models.GeneratedClip.id == request.video_id)
+    result = await db.execute(stmt)
+    clip = result.scalars().first()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Instagram fetches the video from a public HTTPS URL; build it from PUBLIC_BASE_URL.
+    public_base = os.getenv("PUBLIC_BASE_URL")
+    if not public_base:
+        raise HTTPException(status_code=400, detail="PUBLIC_BASE_URL is not set. Instagram needs a public HTTPS URL to fetch the video (e.g. an ngrok/cloudflared tunnel to the backend).")
+    # Instagram rejects non-faststart MP4s (error 2207077); ensure moov is at the front.
+    # Run in a thread so the blocking ffmpeg remux doesn't stall the event loop.
+    from .services import editor
+    try:
+        publish_path = await asyncio.to_thread(editor.ensure_faststart, clip.file_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to prepare video for Instagram: {e}")
+    filename = os.path.basename(publish_path)
+    video_url = f"{public_base.rstrip('/')}/static/{filename}"
+
+    # Prefer the Page access token for publishing; fall back to the user token.
+    publish_token = config.page_access_token or config.access_token
+
+    # IMPORTANT: publish_reel makes blocking HTTP calls and polls with sleep(). Meta fetches
+    # the video from THIS server during that time, so we must not block the event loop or the
+    # /static request stalls and the Reel fails with error 2207077. Offload to a thread.
+    media_id, error = await asyncio.to_thread(
+        instagram_service.publish_reel,
+        publish_token,
+        config.ig_user_id,
+        video_url,
+        request.caption,
+    )
+    if error:
+        raise HTTPException(status_code=500, detail=f"Reel upload failed: {error}")
+
+    clip.instagram_id = media_id
+    clip.uploaded_to_instagram = config.username
+    clip.instagram_uploaded_at = func.now()
+    await db.commit()
+
+    return {"status": "success", "instagram_id": media_id, "username": config.username}
 
 @app.delete("/clips/{clip_id}")
 async def delete_clip(clip_id: int, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):

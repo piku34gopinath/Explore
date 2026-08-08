@@ -2,10 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install FFmpeg for video processing
+# Install FFmpeg for video processing + color-emoji font for clip stickers
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     imagemagick \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Fix ImageMagick security policy for MoviePy

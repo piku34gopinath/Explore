@@ -110,6 +110,13 @@ class YouTubeUploadRequest(BaseModel):
     tags: str
     privacy_status: str = "private" # private, public, unlisted
 
+class InstagramAuthResponse(BaseModel):
+    auth_url: str
+
+class InstagramUploadRequest(BaseModel):
+    video_id: int
+    caption: str = ""
+
 class SystemConfig(BaseModel):
     key: str
     value: str

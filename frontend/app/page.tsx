@@ -31,7 +31,12 @@ export default function Home() {
       router.push(`/video/${response.data.id}`);
     } catch (error) {
       console.error("Error submitting video:", error);
-      alert("Failed to submit video. Please make sure the backend is running.");
+      if (axios.isAxiosError(error)) {
+        const detail = error.response?.data?.detail || error.message;
+        alert(`Failed to submit video: ${detail}`);
+      } else {
+        alert("Failed to submit video. Please make sure the backend is running.");
+      }
       setLoading(false);
     }
   };

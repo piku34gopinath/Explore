@@ -19,7 +19,8 @@ export default function AuthCallbackPage() {
 
     const exchangeCode = async () => {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/callback?code=${code}`, {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${API_URL}/auth/callback?code=${code}`, {
           method: "POST",
           credentials: "include",
         });

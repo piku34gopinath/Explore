@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Info, AlertCircle, Sparkles, TrendingUp, CheckCircle, XCircle, RefreshCw, Youtube, CheckCircle2, Loader2 } from "lucide-react";
+import { Info, AlertCircle, Sparkles, TrendingUp, CheckCircle, XCircle, RefreshCw, Youtube, CheckCircle2, Loader2, Instagram } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +34,8 @@ interface Clip {
   youtube_id?: string | null;
   uploaded_to_channel?: string | null;
   uploaded_at?: string | null;
+  instagram_id?: string | null;
+  uploaded_to_instagram?: string | null;
 }
 
 interface ClipSuggestion {
@@ -96,6 +98,14 @@ export default function VideoPage() {
   const [uploadError, setUploadError] = useState("");
   const [youtubeAccounts, setYoutubeAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+  // Instagram Reels state
+  const [reelClip, setReelClip] = useState<Clip | null>(null);
+  const [reelCaption, setReelCaption] = useState("");
+  const [reelUploading, setReelUploading] = useState(false);
+  const [reelStatus, setReelStatus] = useState<"idle" | "success" | "error">("idle");
+  const [reelError, setReelError] = useState("");
+  const [instagramAccounts, setInstagramAccounts] = useState<any[]>([]);
+  const [selectedIgAccountId, setSelectedIgAccountId] = useState<number | null>(null);
 
   const fetchVideo = async () => {
     try {
@@ -271,6 +281,51 @@ export default function VideoPage() {
       }
     } finally {
       setUploading(false);
+    }
+  };
+
+  const fetchInstagramAccounts = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/instagram/status`);
+      const accounts = response.data.accounts || [];
+      setInstagramAccounts(accounts);
+      const primary = accounts.find((a: any) => a.is_primary);
+      if (primary) setSelectedIgAccountId(primary.id);
+      else if (accounts.length > 0) setSelectedIgAccountId(accounts[0].id);
+    } catch (error) {
+      console.error("Error fetching Instagram accounts:", error);
+    }
+  };
+
+  const openReelDialog = (clip: Clip) => {
+    setReelClip(clip);
+    const tags = clip.tags
+      ? clip.tags.split(",").map((t) => `#${t.trim().replace(/^#/, "")}`).join(" ")
+      : "";
+    setReelCaption(`${clip.title || ""}\n\n${clip.description || ""}\n\n${tags}`.trim());
+    setReelStatus("idle");
+    setReelError("");
+    fetchInstagramAccounts();
+  };
+
+  const handleUploadReel = async () => {
+    if (!reelClip) return;
+    setReelUploading(true);
+    setReelError("");
+    setReelStatus("idle");
+    try {
+      const url = selectedIgAccountId
+        ? `${API_URL}/upload/instagram?account_id=${selectedIgAccountId}`
+        : `${API_URL}/upload/instagram`;
+      await axios.post(url, { video_id: reelClip.id, caption: reelCaption });
+      setReelStatus("success");
+      await fetchVideo();
+    } catch (err: any) {
+      console.error("Reel upload error:", err);
+      setReelStatus("error");
+      setReelError(err.response?.data?.detail || "Failed to upload Reel.");
+    } finally {
+      setReelUploading(false);
     }
   };
 
@@ -513,9 +568,18 @@ export default function VideoPage() {
                         Download
                       </Button>
                     </div>
+                    <Button
+                      className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:opacity-90 text-white gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => openReelDialog(clip)}
+                      disabled={!!clip.instagram_id}
+                      size="sm"
+                    >
+                      <Instagram className="h-4 w-4" />
+                      {clip.instagram_id ? "Posted to Reels" : "Upload to Reels"}
+                    </Button>
                     <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => copyMetadata(clip)}
                         className="flex-1"
@@ -642,6 +706,100 @@ export default function VideoPage() {
                 )}
               </Button>
             </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Instagram Reels Upload Dialog */}
+      <Dialog open={!!reelClip} onOpenChange={(open) => !open && setReelClip(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Upload to Instagram Reels</DialogTitle>
+            <DialogDescription>
+              The clip will be published as a Reel to your connected Instagram account.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reelStatus === "success" ? (
+            <div className="flex flex-col items-center gap-4 py-4">
+              <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <p className="text-center font-medium">Reel published!</p>
+              <Button onClick={() => setReelClip(null)} className="w-full">Close</Button>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 py-4">
+                {instagramAccounts.length === 0 ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      No Instagram account connected. Go to Settings → Instagram Integration to connect one.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <>
+                    {instagramAccounts.length > 1 && (
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium">Post to Account</label>
+                        <Select
+                          value={selectedIgAccountId?.toString() || ""}
+                          onValueChange={(val) => setSelectedIgAccountId(parseInt(val))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {instagramAccounts.map((account) => (
+                              <SelectItem key={account.id} value={account.id.toString()}>
+                                @{account.username} {account.is_primary && "(Primary)"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="grid gap-2">
+                      <label htmlFor="caption" className="text-sm font-medium">Caption</label>
+                      <Textarea
+                        id="caption"
+                        value={reelCaption}
+                        onChange={(e) => setReelCaption(e.target.value)}
+                        className="h-32"
+                        maxLength={2200}
+                      />
+                      <p className="text-xs text-muted-foreground text-right">{reelCaption.length}/2200</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {reelStatus === "error" && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{reelError}</AlertDescription>
+                </Alert>
+              )}
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setReelClip(null)} disabled={reelUploading}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUploadReel}
+                  disabled={reelUploading || instagramAccounts.length === 0}
+                  className="bg-gradient-to-r from-purple-600 to-pink-500 hover:opacity-90 text-white"
+                >
+                  {reelUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    "Publish Reel"
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
           )}
         </DialogContent>
       </Dialog>

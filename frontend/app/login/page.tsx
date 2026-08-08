@@ -13,7 +13,8 @@ export default function LoginPage() {
   const handleLogin = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`);
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${API_URL}/auth/login`);
       const data = await res.json();
       if (data.auth_url) {
         window.location.href = data.auth_url;

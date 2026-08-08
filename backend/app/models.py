@@ -62,6 +62,11 @@ class GeneratedClip(Base):
     uploaded_to_channel = Column(String, nullable=True)  # Channel name it was uploaded to
     uploaded_at = Column(DateTime(timezone=True), nullable=True)  # When it was uploaded
 
+    # Instagram Reels upload tracking
+    instagram_id = Column(String, nullable=True)  # IG media ID after publish
+    uploaded_to_instagram = Column(String, nullable=True)  # IG username it was published to
+    instagram_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+
     video_source = relationship("VideoSource", back_populates="clips")
 
 
@@ -114,6 +119,26 @@ class YouTubeConfig(Base):
     video_count = Column(Integer, nullable=True)
     is_connected = Column(Boolean, default=False)
     is_primary = Column(Boolean, default=False)  # Primary account for uploads
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+
+class InstagramConfig(Base):
+    __tablename__ = "instagram_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    access_token = Column(String)          # long-lived user token
+    page_access_token = Column(String)     # Page token (used for publishing)
+    page_id = Column(String)
+    ig_user_id = Column(String)            # Instagram Business account ID
+    username = Column(String)
+    name = Column(String, nullable=True)
+    profile_picture_url = Column(String, nullable=True)
+    followers_count = Column(Integer, nullable=True)
+    is_connected = Column(Boolean, default=False)
+    is_primary = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

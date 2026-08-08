@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, AlertCircle, Loader2, Youtube } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, Youtube, Instagram } from "lucide-react";
 
 export default function SettingsPage() {
   const [provider, setProvider] = useState<string>("openai");
@@ -23,6 +23,7 @@ export default function SettingsPage() {
   const [youtubeConfig, setYoutubeConfig] = useState<{ is_connected: boolean, accounts?: any[], channel_name?: string, channel_thumbnail?: string, subscriber_count?: number, video_count?: number } | null>(null);
   const [googleClientId, setGoogleClientId] = useState("");
   const [googleClientSecret, setGoogleClientSecret] = useState("");
+  const [instagramConfig, setInstagramConfig] = useState<{ is_connected: boolean, accounts?: any[] } | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -32,6 +33,7 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchConfigs();
     fetchYoutubeStatus();
+    fetchInstagramStatus();
     fetchSystemConfigs();
   }, []);
 
@@ -151,6 +153,39 @@ export default function SettingsPage() {
     } catch (err: any) {
       console.error("Error setting primary:", err);
       setError(err.response?.data?.detail || "Failed to set primary account.");
+    }
+  };
+
+  const fetchInstagramStatus = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/instagram/status`);
+      setInstagramConfig(response.data);
+    } catch (err) {
+      console.error("Error fetching Instagram status:", err);
+    }
+  };
+
+  const handleConnectInstagram = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/auth/instagram/url`);
+      window.location.href = response.data.auth_url;
+    } catch (err: any) {
+      console.error("Error getting Instagram auth URL:", err);
+      setError(err.response?.data?.detail || "Failed to initiate Instagram connection.");
+    }
+  };
+
+  const handleDisconnectInstagram = async (accountId?: number) => {
+    if (!confirm("Disconnect this Instagram account?")) return;
+    try {
+      const url = accountId
+        ? `${API_URL}/auth/instagram/disconnect?account_id=${accountId}`
+        : `${API_URL}/auth/instagram/disconnect`;
+      await axios.post(url);
+      fetchInstagramStatus();
+    } catch (err) {
+      console.error("Error disconnecting Instagram:", err);
+      setError("Failed to disconnect Instagram account.");
     }
   };
 
@@ -300,6 +335,47 @@ export default function SettingsPage() {
                 <Button className="w-full" onClick={handleConnectYoutube}>
                   <Youtube className="h-4 w-4 mr-2" />
                   Connect YouTube Account
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Instagram Integration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Instagram Integration</CardTitle>
+              <CardDescription>Connect an Instagram Business/Creator account to publish Reels.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {instagramConfig?.is_connected && instagramConfig.accounts && instagramConfig.accounts.length > 0 ? (
+                <div className="space-y-3">
+                  {instagramConfig.accounts.map((account: any) => (
+                    <div key={account.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {account.profile_picture_url && (
+                          <img src={account.profile_picture_url} alt={account.username} className="h-10 w-10 rounded-full" />
+                        )}
+                        <div>
+                          <h3 className="font-semibold">@{account.username}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {account.followers_count?.toLocaleString() || 0} followers
+                          </p>
+                        </div>
+                      </div>
+                      <Button variant="destructive" size="sm" onClick={() => handleDisconnectInstagram(account.id)}>
+                        Disconnect
+                      </Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" className="w-full" onClick={handleConnectInstagram}>
+                    <Instagram className="h-4 w-4 mr-2" />
+                    Connect Another Account
+                  </Button>
+                </div>
+              ) : (
+                <Button className="w-full bg-gradient-to-r from-purple-600 to-pink-500 hover:opacity-90 text-white" onClick={handleConnectInstagram}>
+                  <Instagram className="h-4 w-4 mr-2" />
+                  Connect Instagram Account
                 </Button>
               )}
             </CardContent>

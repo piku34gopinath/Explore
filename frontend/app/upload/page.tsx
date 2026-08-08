@@ -49,7 +49,7 @@ export default function UploadPage() {
   const [clipToDelete, setClipToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   // Configure axios to send cookies
   axios.defaults.withCredentials = true;

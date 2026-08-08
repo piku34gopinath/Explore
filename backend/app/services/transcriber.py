@@ -1,26 +1,68 @@
 import os
-from openai import OpenAI
 
-# Initialize client if API key is present
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Local Whisper (faster-whisper) — free, runs on CPU, gives word-level timings.
+# Model is loaded lazily once and reused across clips.
+_model = None
 
-def transcribe_audio(file_path: str) -> str:
-    # 1. Extract audio from video first to reduce upload size (optional but recommended)
-    # For now, we'll try to upload the video file directly or extract audio using ffmpeg
-    # Simplest approach for prototype: send file to OpenAI Whisper API
-    
-    # Check file size, if > 25MB, we need to split or compress.
-    # For this MVP, we assume short videos or we would add audio extraction logic here.
-    
+
+def _get_local_model():
+    global _model
+    if _model is None:
+        from faster_whisper import WhisperModel
+        size = os.getenv("WHISPER_MODEL", "base")  # tiny/base/small/medium
+        _model = WhisperModel(size, device="cpu", compute_type="int8")
+    return _model
+
+
+def _fmt_ts(seconds: float) -> str:
+    if seconds < 0:
+        seconds = 0
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    ms = int(round((seconds - int(seconds)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+# "translate" => English output (readable captions + works with the Latin caption font).
+# Set WHISPER_TASK=transcribe to keep the original spoken language instead.
+WHISPER_TASK = os.getenv("WHISPER_TASK", "translate")
+
+
+def transcribe_audio(file_path: str):
+    """Transcribe to SRT (phrase-level) using local Whisper. Returns None on failure."""
     try:
-        with open(file_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                response_format="srt" # We need timestamps for clipping
-            )
-        return transcript
+        model = _get_local_model()
+        segments, _info = model.transcribe(file_path, task=WHISPER_TASK)
+        lines, idx = [], 1
+        for seg in segments:
+            text = (seg.text or "").strip()
+            if not text:
+                continue
+            lines.append(f"{idx}\n{_fmt_ts(seg.start)} --> {_fmt_ts(seg.end)}\n{text}\n")
+            idx += 1
+        return "\n".join(lines) if lines else None
     except Exception as e:
         print(f"Transcription failed: {str(e)}")
-        # Fallback to local whisper or return dummy data for testing
-        return "1\n00:00:00,000 --> 00:00:10,000\nThis is a sample transcript because the API call failed."
+        return None
+
+
+def transcribe_words(file_path: str):
+    """Return word-level timestamps for karaoke captions using local Whisper.
+
+    Returns a list of {"word": str, "start": float, "end": float}, or None.
+    """
+    try:
+        model = _get_local_model()
+        segments, _info = model.transcribe(file_path, word_timestamps=True, task=WHISPER_TASK)
+        out = []
+        for seg in segments:
+            for w in (seg.words or []):
+                word = (w.word or "").strip()
+                if not word or w.start is None or w.end is None:
+                    continue
+                out.append({"word": word, "start": float(w.start), "end": float(w.end)})
+        return out or None
+    except Exception as e:
+        print(f"Word-level transcription failed: {str(e)}")
+        return None
