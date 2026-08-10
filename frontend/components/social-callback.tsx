@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import axios from "axios";
 
-export default function SocialCallback({ platform }: { platform: string }) {
+function SocialCallbackInner({ platform }: { platform: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -68,5 +68,19 @@ export default function SocialCallback({ platform }: { platform: string }) {
       <div className="text-lg font-medium">Connecting {platform}...</div>
       <div className="text-sm text-muted-foreground">Finalizing your {platform} account connection</div>
     </div>
+  );
+}
+
+export default function SocialCallback({ platform }: { platform: string }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center justify-center min-h-screen">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <SocialCallbackInner platform={platform} />
+    </Suspense>
   );
 }

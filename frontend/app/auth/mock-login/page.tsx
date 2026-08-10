@@ -1,11 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Instagram, Facebook, Twitter } from "lucide-react";
+import { Instagram, Facebook, Twitter, Loader2 } from "lucide-react";
 
-export default function MockLoginPage() {
+function MockLoginInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const platform = searchParams.get("platform") || "social";
@@ -53,5 +54,19 @@ export default function MockLoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function MockLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen bg-muted/30 p-4">
+          <Loader2 className="h-10 w-10 animate-spin" />
+        </div>
+      }
+    >
+      <MockLoginInner />
+    </Suspense>
   );
 }
