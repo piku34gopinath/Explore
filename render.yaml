@@ -4,6 +4,7 @@ services:
     name: ai-clipper-redis
     plan: free
     maxmemoryPolicy: noeviction
+    ipAllowList: []
 
   # ── Backend (FastAPI) ─────────────────────────────────────────────────────
   - type: web

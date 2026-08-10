@@ -54,7 +54,34 @@ async def migrate():
             print("Added column is_primary")
     except Exception as e:
         print(f"Column is_primary might already exist: {e}")
-        
+
+    # Add instagram_configs new-schema columns
+    instagram_columns = [
+        ("refresh_token", "VARCHAR"),
+        ("token_expiry", "TIMESTAMP WITH TIME ZONE"),
+        ("instagram_id", "VARCHAR"),
+        ("profile_picture", "VARCHAR"),
+        ("follower_count", "INTEGER"),
+    ]
+    for col, col_type in instagram_columns:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE instagram_configs ADD COLUMN {col} {col_type};"))
+                print(f"Added {col} to instagram_configs")
+        except Exception as e:
+            print(f"instagram_configs.{col} might already exist: {e}")
+
+    # Backfill instagram_id from legacy ig_user_id column when present
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE instagram_configs SET instagram_id = ig_user_id "
+                "WHERE instagram_id IS NULL AND ig_user_id IS NOT NULL;"
+            ))
+            print("Backfilled instagram_configs.instagram_id from ig_user_id")
+    except Exception as e:
+        print(f"instagram_id backfill skipped: {e}")
+
     print("Migration process completed.")
 
 if __name__ == "__main__":

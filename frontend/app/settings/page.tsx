@@ -19,6 +19,8 @@ export default function SettingsPage() {
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [savingPlatform, setSavingPlatform] = useState(false);
+  const [platformSaved, setPlatformSaved] = useState(false);
   const [savedConfigs, setSavedConfigs] = useState<any[]>([]);
   const [youtubeConfig, setYoutubeConfig] = useState<{ is_connected: boolean, accounts?: any[], channel_name?: string, channel_thumbnail?: string, subscriber_count?: number, video_count?: number } | null>(null);
   const [instagramConfig, setInstagramConfig] = useState<{ is_connected: boolean, accounts?: any[] } | null>(null);
@@ -53,24 +55,27 @@ export default function SettingsPage() {
   };
 
   const fetchSystemConfigs = async () => {
-    try {
-        const platformKeys = [
-            { id: "google_client_id", secret: "google_client_secret", setId: setGoogleClientId, setSecret: setGoogleClientSecret },
-            { id: "instagram_client_id", secret: "instagram_client_secret", setId: setInstagramClientId, setSecret: setInstagramClientSecret },
-            { id: "facebook_client_id", secret: "facebook_client_secret", setId: setFacebookClientId, setSecret: setFacebookClientSecret },
-            { id: "x_client_id", secret: "x_client_secret", setId: setXClientId, setSecret: setXClientSecret }
-        ];
+    const platformKeys = [
+        { id: "google_client_id", secret: "google_client_secret", setId: setGoogleClientId, setSecret: setGoogleClientSecret },
+        { id: "instagram_client_id", secret: "instagram_client_secret", setId: setInstagramClientId, setSecret: setInstagramClientSecret },
+        { id: "facebook_client_id", secret: "facebook_client_secret", setId: setFacebookClientId, setSecret: setFacebookClientSecret },
+        { id: "x_client_id", secret: "x_client_secret", setId: setXClientId, setSecret: setXClientSecret }
+    ];
 
-        for (const platform of platformKeys) {
-            const idRes = await axios.get(`${API_URL}/settings/system/${platform.id}`);
-            if (idRes.data.value) platform.setId(idRes.data.value);
-            
-            const secretRes = await axios.get(`${API_URL}/settings/system/${platform.secret}`);
-            if (secretRes.data.value) platform.setSecret(secretRes.data.value);
-        }
-    } catch (err) {
-        console.error("Error fetching system configs:", err);
-    }
+    await Promise.all(
+        platformKeys.map(async (platform) => {
+            try {
+                const [idRes, secretRes] = await Promise.all([
+                    axios.get(`${API_URL}/settings/system/${platform.id}`),
+                    axios.get(`${API_URL}/settings/system/${platform.secret}`)
+                ]);
+                if (idRes.data.value) platform.setId(idRes.data.value);
+                if (secretRes.data.value) platform.setSecret(secretRes.data.value);
+            } catch (err) {
+                console.error(`Error fetching config for ${platform.id}:`, err);
+            }
+        })
+    );
   };
 
   const [statusLoading, setStatusLoading] = useState(true);
@@ -230,25 +235,28 @@ export default function SettingsPage() {
   };
 
   const handleSaveSystemConfig = async () => {
+    setSavingPlatform(true);
+    setError(null);
     try {
         const configs = [
-            { key: "google_client_id", value: googleClientId },
-            { key: "google_client_secret", value: googleClientSecret },
             { key: "instagram_client_id", value: instagramClientId },
             { key: "instagram_client_secret", value: instagramClientSecret },
             { key: "facebook_client_id", value: facebookClientId },
             { key: "facebook_client_secret", value: facebookClientSecret },
             { key: "x_client_id", value: xClientId },
             { key: "x_client_secret", value: xClientSecret }
-        ];
+        ].filter(c => c.value.trim() !== "");
 
-        for (const config of configs) {
-            await axios.post(`${API_URL}/settings/system`, config);
-        }
-        alert("Platform Configurations Saved!");
+        await Promise.all(
+            configs.map(config => axios.post(`${API_URL}/settings/system`, config))
+        );
+        setPlatformSaved(true);
+        setTimeout(() => setPlatformSaved(false), 3000);
     } catch (err) {
         console.error("Error saving system config:", err);
         setError("Failed to save platform settings.");
+    } finally {
+        setSavingPlatform(false);
     }
   };
 
@@ -256,7 +264,7 @@ export default function SettingsPage() {
     <div className="max-w-4xl mx-auto space-y-8 p-4">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Manage your AI and YouTube integrations.</p>
+        <p className="text-muted-foreground">Manage your AI and social media integrations.</p>
       </div>
 
       {error && (
@@ -656,7 +664,14 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <Button className="w-full" onClick={handleSaveSystemConfig}>
+            {platformSaved && (
+              <Alert className="bg-green-500/10 text-green-500 border-green-500/20">
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertDescription>Platform configurations saved successfully!</AlertDescription>
+              </Alert>
+            )}
+            <Button className="w-full" onClick={handleSaveSystemConfig} disabled={savingPlatform}>
+              {savingPlatform ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Save Platform Configurations
             </Button>
           </CardContent>
