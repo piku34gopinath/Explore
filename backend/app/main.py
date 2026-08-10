@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -177,13 +177,13 @@ async def create_user(user: schemas.UserCreate, db: AsyncSession = Depends(datab
     return await crud.create_user(db=db, user=user)
 
 @app.post("/videos/submit", response_model=schemas.VideoSource)
-async def submit_video(video: schemas.VideoSourceCreate, db: AsyncSession = Depends(database.get_db)):
+async def submit_video(video: schemas.VideoSourceCreate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(database.get_db)):
     # Create video entry in DB
     db_video = await crud.create_video_source(db=db, video=video)
-    
-    # Trigger Celery task
-    tasks.process_video_task.delay(db_video.id, db_video.original_url)
-    
+
+    # Run processing in-process (no Celery/Redis needed)
+    background_tasks.add_task(tasks.process_video_task, db_video.id, db_video.original_url)
+
     return db_video
 
 @app.get("/videos/{video_id}", response_model=schemas.VideoSource)
@@ -222,20 +222,19 @@ async def download_clip(filename: str):
 
 # Clip Suggestion Endpoints
 @app.post("/videos/{video_id}/suggestions/{suggestion_id}/approve")
-async def approve_suggestion(video_id: int, suggestion_id: int, quality: str = "1080p", db: AsyncSession = Depends(database.get_db)):
+async def approve_suggestion(video_id: int, suggestion_id: int, background_tasks: BackgroundTasks, quality: str = "1080p", db: AsyncSession = Depends(database.get_db)):
     """Approve a clip suggestion and trigger rendering with selected quality"""
     from sqlalchemy import update
-    
+
     await db.execute(
         update(models.ClipSuggestion)
         .where(models.ClipSuggestion.id == suggestion_id, models.ClipSuggestion.video_source_id == video_id)
         .values(status="approved", suggested_quality=quality)
     )
     await db.commit()
-    
-    # Trigger rendering task
-    tasks.render_clip_task.delay(suggestion_id, quality)
-    
+
+    background_tasks.add_task(tasks.render_clip_task, suggestion_id, quality)
+
     return {"status": "approved", "message": f"Rendering started at {quality}"}
 
 @app.post("/videos/{video_id}/suggestions/{suggestion_id}/reject")
@@ -252,23 +251,20 @@ async def reject_suggestion(video_id: int, suggestion_id: int, db: AsyncSession 
     return {"status": "rejected"}
 
 @app.post("/videos/{video_id}/regenerate-suggestions")
-async def regenerate_suggestions(video_id: int, db: AsyncSession = Depends(database.get_db)):
+async def regenerate_suggestions(video_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(database.get_db)):
     """Regenerate clip suggestions for a video using AI"""
-    # Trigger re-analysis task
     video = await crud.get_video(db, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
-    # Delete old suggestions
+
     from sqlalchemy import delete
     await db.execute(
         delete(models.ClipSuggestion).where(models.ClipSuggestion.video_source_id == video_id)
     )
     await db.commit()
-    
-    # Trigger analysis task again
-    tasks.process_video_task.delay(video_id, video.original_url)
-    
+
+    background_tasks.add_task(tasks.process_video_task, video_id, video.original_url)
+
     return {"status": "regenerating"}
 
 @app.post("/settings/system")

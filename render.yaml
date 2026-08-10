@@ -1,11 +1,4 @@
 services:
-  # ── Redis (shared by backend + worker) ────────────────────────────────────
-  - type: redis
-    name: ai-clipper-redis
-    plan: free
-    maxmemoryPolicy: noeviction
-    ipAllowList: []
-
   # ── Backend (FastAPI) ─────────────────────────────────────────────────────
   - type: web
     name: ai-clipper-backend
@@ -17,22 +10,12 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false           # Paste your Neon connection string here
-      - key: CELERY_BROKER_URL
-        fromService:
-          name: ai-clipper-redis
-          type: redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          name: ai-clipper-redis
-          type: redis
-          property: connectionString
       - key: FRONTEND_URL
         value: https://reviewapp.mrigika.in
       - key: SESSION_SECRET
         generateValue: true
       - key: ENCRYPTION_KEY
-        sync: false           # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+        sync: false           # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       - key: OPENAI_API_KEY
         sync: false
       - key: GOOGLE_CLIENT_ID
@@ -52,31 +35,6 @@ services:
       - key: X_CLIENT_SECRET
         sync: false
 
-  # ── Celery Worker ─────────────────────────────────────────────────────────
-  - type: worker
-    name: ai-clipper-worker
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile.worker
-    dockerContext: ./backend
-    plan: free
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: CELERY_BROKER_URL
-        fromService:
-          name: ai-clipper-redis
-          type: redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          name: ai-clipper-redis
-          type: redis
-          property: connectionString
-      - key: ENCRYPTION_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-
   # ── Frontend (Next.js) ────────────────────────────────────────────────────
   - type: web
     name: ai-clipper-frontend
@@ -86,4 +44,4 @@ services:
     plan: free
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        sync: false           # Set to: https://ai-clipper-backend.onrender.com (your backend URL)
+        sync: false           # Set to your backend URL, e.g. https://ai-clipper-backend.onrender.com
