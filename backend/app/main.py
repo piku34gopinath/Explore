@@ -20,9 +20,14 @@ os.makedirs("data/clips", exist_ok=True)
 app.mount("/static", StaticFiles(directory="data/clips"), name="static")
 
 # CORS setup
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        FRONTEND_URL,
+    ],
     allow_origin_regex="https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
@@ -373,7 +378,7 @@ async def set_primary_account(account_id: int, db: AsyncSession = Depends(get_db
 # Instagram Integration Endpoints
 @app.get("/auth/instagram/url")
 async def get_instagram_auth_url(db: AsyncSession = Depends(get_db)):
-    redirect_uri = "http://localhost:3000/auth/instagram/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/instagram/callback"
     
     # Try to get credentials from DB first
     client_id = await crud.get_system_config(db, "instagram_client_id")
@@ -393,7 +398,7 @@ async def get_instagram_auth_url(db: AsyncSession = Depends(get_db)):
 @app.post("/auth/instagram/callback")
 async def instagram_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     user_id = current_user.id if current_user else 1
-    redirect_uri = "http://localhost:3000/auth/instagram/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/instagram/callback"
     
     # Get credentials from DB
     client_id = await crud.get_system_config(db, "instagram_client_id")
@@ -439,7 +444,7 @@ async def set_primary_instagram_account(account_id: int, db: AsyncSession = Depe
 # Facebook Integration Endpoints
 @app.get("/auth/facebook/url")
 async def get_facebook_auth_url(db: AsyncSession = Depends(get_db)):
-    redirect_uri = "http://localhost:3000/auth/facebook/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/facebook/callback"
     
     # Try to get credentials from DB first
     client_id = await crud.get_system_config(db, "facebook_client_id")
@@ -455,7 +460,7 @@ async def get_facebook_auth_url(db: AsyncSession = Depends(get_db)):
 @app.post("/auth/facebook/callback")
 async def facebook_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     user_id = current_user.id if current_user else 1
-    redirect_uri = "http://localhost:3000/auth/facebook/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/facebook/callback"
     
     # Get credentials from DB
     client_id = await crud.get_system_config(db, "facebook_client_id")
@@ -495,7 +500,7 @@ async def set_primary_facebook_account(account_id: int, db: AsyncSession = Depen
 # X Integration Endpoints
 @app.get("/auth/x/url")
 async def get_x_auth_url(db: AsyncSession = Depends(get_db)):
-    redirect_uri = "http://localhost:3000/auth/x/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/x/callback"
     
     # Try to get credentials from DB first
     client_id = await crud.get_system_config(db, "x_client_id")
@@ -511,7 +516,7 @@ async def get_x_auth_url(db: AsyncSession = Depends(get_db)):
 @app.post("/auth/x/callback")
 async def x_auth_callback(code: str, db: AsyncSession = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     user_id = current_user.id if current_user else 1
-    redirect_uri = "http://localhost:3000/auth/x/callback"
+    redirect_uri = f"{FRONTEND_URL}/auth/x/callback"
     
     # Get credentials from DB
     client_id = await crud.get_system_config(db, "x_client_id")

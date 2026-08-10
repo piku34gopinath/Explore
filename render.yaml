@@ -1,0 +1,88 @@
+services:
+  # ── Redis (shared by backend + worker) ────────────────────────────────────
+  - type: redis
+    name: ai-clipper-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+
+  # ── Backend (FastAPI) ─────────────────────────────────────────────────────
+  - type: web
+    name: ai-clipper-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false           # Paste your Neon connection string here
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: ai-clipper-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: ai-clipper-redis
+          type: redis
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://reviewapp.mrigika.in
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false           # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: INSTAGRAM_CLIENT_ID
+        sync: false
+      - key: INSTAGRAM_CLIENT_SECRET
+        sync: false
+      - key: FACEBOOK_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_CLIENT_SECRET
+        sync: false
+      - key: X_CLIENT_ID
+        sync: false
+      - key: X_CLIENT_SECRET
+        sync: false
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────
+  - type: worker
+    name: ai-clipper-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile.worker
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: ai-clipper-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: ai-clipper-redis
+          type: redis
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  # ── Frontend (Next.js) ────────────────────────────────────────────────────
+  - type: web
+    name: ai-clipper-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false           # Set to: https://ai-clipper-backend.onrender.com (your backend URL)
