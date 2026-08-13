@@ -42,6 +42,9 @@ services:
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
     plan: free
+    buildFilter:
+      paths:
+        - frontend/**
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        sync: false           # Set to your backend URL, e.g. https://ai-clipper-backend.onrender.com
+        sync: false           # Set to your backend URL, e.g. https://ai-clipper-backend-d6pb.onrender.com
