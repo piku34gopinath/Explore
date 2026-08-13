@@ -157,10 +157,13 @@ async def startup():
             if not env_value:
                 continue
             existing = await crud.get_system_config(db, key)
-            if existing:
+            if existing and existing == env_value:
                 continue
             await crud.set_system_config(db, key, env_value)
-            print(f"Seeded {key} from env into system_configs")
+            if existing:
+                print(f"Updated {key} in system_configs from env (value changed)")
+            else:
+                print(f"Seeded {key} from env into system_configs")
 
 @app.get("/")
 async def root():
