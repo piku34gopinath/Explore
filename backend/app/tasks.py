@@ -2,6 +2,56 @@ from .database import SessionLocal
 from .models import VideoSource, GeneratedClip, ClipSuggestion, ProcessingStatus
 from .services import downloader, transcriber, analyzer, editor
 import os
+import json
+import subprocess
+
+
+def _is_local_file(url: str) -> bool:
+    return url.startswith("file://")
+
+
+def _local_path(url: str) -> str:
+    return url[len("file://"):] if _is_local_file(url) else url
+
+
+def _probe_local_video(path: str) -> dict:
+    """Read metadata from a local video file via ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-print_format", "json",
+                "-show_format", "-show_streams", path,
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        data = json.loads(result.stdout)
+        video_stream = next(
+            (s for s in data.get("streams", []) if s.get("codec_type") == "video"),
+            {},
+        )
+        fmt = data.get("format", {})
+        return {
+            "title": os.path.splitext(os.path.basename(path))[0],
+            "thumbnail": None,
+            "duration": float(fmt.get("duration", 0) or 0),
+            "description": "",
+            "channel": "",
+            "view_count": 0,
+            "width": video_stream.get("width"),
+            "height": video_stream.get("height"),
+        }
+    except Exception as e:
+        print(f"ffprobe error: {e}")
+        return {
+            "title": os.path.splitext(os.path.basename(path))[0],
+            "thumbnail": None,
+            "duration": 0,
+            "description": "",
+            "channel": "",
+            "view_count": 0,
+            "width": None,
+            "height": None,
+        }
 
 
 def process_video_task(video_id: int, video_url: str):
@@ -36,7 +86,11 @@ def process_video_task(video_id: int, video_url: str):
         db.commit()
 
         try:
-            metadata = downloader.get_video_metadata(video_url)
+            if _is_local_file(video_url):
+                local_path = _local_path(video_url)
+                metadata = _probe_local_video(local_path)
+            else:
+                metadata = downloader.get_video_metadata(video_url)
             video.title = metadata.get("title")
             video.thumbnail_url = metadata.get("thumbnail")
             video.source_width = metadata.get("width")
@@ -44,7 +98,11 @@ def process_video_task(video_id: int, video_url: str):
             video.progress = 30
             db.commit()
 
-            transcript = downloader.get_video_transcript(video_url)
+            if _is_local_file(video_url):
+                # Whisper transcription on the uploaded file
+                transcript = transcriber.transcribe_audio(_local_path(video_url)) or ""
+            else:
+                transcript = downloader.get_video_transcript(video_url)
             if not transcript or len(transcript) < 100:
                 transcript = metadata.get('description', '')
 
@@ -142,18 +200,26 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
         }
         target_height = quality_map.get(quality.lower(), 1080)
 
-        segment_path = downloader.download_video_segment(
-            url=video.original_url,
-            start_time=suggestion.start_time,
-            end_time=suggestion.end_time
-        )
-
-        result = editor.create_vertical_clip(
-            source_path=segment_path,
-            start_time="0",
-            end_time=str(suggestion.end_time - suggestion.start_time),
-            target_height=target_height
-        )
+        if _is_local_file(video.original_url):
+            segment_path = None
+            result = editor.create_vertical_clip(
+                source_path=_local_path(video.original_url),
+                start_time=str(suggestion.start_time),
+                end_time=str(suggestion.end_time),
+                target_height=target_height,
+            )
+        else:
+            segment_path = downloader.download_video_segment(
+                url=video.original_url,
+                start_time=suggestion.start_time,
+                end_time=suggestion.end_time
+            )
+            result = editor.create_vertical_clip(
+                source_path=segment_path,
+                start_time="0",
+                end_time=str(suggestion.end_time - suggestion.start_time),
+                target_height=target_height
+            )
 
         new_clip = GeneratedClip(
             video_source_id=video.id,
@@ -172,7 +238,7 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
         suggestion.status = "generated"
         db.commit()
 
-        if os.path.exists(segment_path):
+        if segment_path and os.path.exists(segment_path):
             os.remove(segment_path)
 
     except Exception as e:

@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Wand2, Mic, Smartphone, Play, ArrowRight } from "lucide-react";
+import { Wand2, Mic, Smartphone, Play, ArrowRight, Upload as UploadIcon, Link as LinkIcon } from "lucide-react";
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"url" | "file">("url");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   
   // Use env var or default to localhost:8000
@@ -22,12 +26,29 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setUploadProgress(0);
     try {
-      // Hardcoded user_id for MVP
-      const response = await axios.post(`${API_URL}/videos/submit`, {
-        original_url: url,
-        user_id: 1 
-      });
+      let response;
+      if (mode === "file") {
+        if (!file) {
+          alert("Please select a video file to upload.");
+          setLoading(false);
+          return;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        response = await axios.post(`${API_URL}/videos/upload`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (evt) => {
+            if (evt.total) setUploadProgress(Math.round((evt.loaded / evt.total) * 100));
+          },
+        });
+      } else {
+        response = await axios.post(`${API_URL}/videos/submit`, {
+          original_url: url,
+          user_id: 1,
+        });
+      }
       router.push(`/video/${response.data.id}`);
     } catch (error) {
       console.error("Error submitting video:", error);
@@ -69,29 +90,77 @@ export default function Home() {
 
         {/* Input Section */}
         <Card className="w-full max-w-2xl bg-card/50 backdrop-blur-xl border-white/10 shadow-2xl shadow-violet-500/10">
-          <CardContent className="p-2">
-            <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 p-2">
-              <div className="relative flex-1">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                  <Play className="w-4 h-4" />
+          <CardContent className="p-4 space-y-3">
+            {/* Mode Toggle */}
+            <div className="flex gap-2 p-1 bg-background/40 rounded-lg w-fit mx-auto">
+              <button
+                type="button"
+                onClick={() => setMode("url")}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${
+                  mode === "url" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-white"
+                }`}
+              >
+                <LinkIcon className="w-4 h-4" /> YouTube URL
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("file")}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium flex items-center gap-2 transition-all ${
+                  mode === "file" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-white"
+                }`}
+              >
+                <UploadIcon className="w-4 h-4" /> Upload Video
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2">
+              {mode === "url" ? (
+                <div className="relative flex-1">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <Play className="w-4 h-4" />
+                  </div>
+                  <Input
+                    type="url"
+                    placeholder="Paste YouTube URL here..."
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    required
+                    className="pl-10 h-12 bg-background/50 border-white/5 focus:border-violet-500/50 transition-all text-base"
+                  />
                 </div>
-                <Input 
-                  type="url" 
-                  placeholder="Paste YouTube URL here..." 
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  required
-                  className="pl-10 h-12 bg-background/50 border-white/5 focus:border-violet-500/50 transition-all text-base"
-                />
-              </div>
-              <Button 
-                type="submit" 
-                disabled={loading} 
+              ) : (
+                <div className="flex-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/mp4,video/quicktime,video/x-matroska,video/webm,video/*"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full h-12 px-4 rounded-md bg-background/50 border border-dashed border-white/10 hover:border-violet-500/50 text-left text-sm text-muted-foreground flex items-center gap-3 transition-all"
+                  >
+                    <UploadIcon className="w-4 h-4 text-violet-400" />
+                    <span className="truncate">
+                      {file ? `${file.name} · ${(file.size / (1024 * 1024)).toFixed(1)} MB` : "Choose a video file (mp4, mov, mkv, webm)"}
+                    </span>
+                  </button>
+                </div>
+              )}
+              <Button
+                type="submit"
+                disabled={loading || (mode === "file" && !file)}
                 size="lg"
                 className="h-12 px-8 bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/25 transition-all hover:scale-105"
               >
                 {loading ? (
-                  <span className="flex items-center gap-2">Processing...</span>
+                  <span className="flex items-center gap-2">
+                    {mode === "file" && uploadProgress > 0 && uploadProgress < 100
+                      ? `Uploading ${uploadProgress}%`
+                      : "Processing..."}
+                  </span>
                 ) : (
                   <span className="flex items-center gap-2">Generate <Wand2 className="w-4 h-4" /></span>
                 )}

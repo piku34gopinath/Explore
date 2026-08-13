@@ -134,36 +134,33 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
     
-    # Sync Google credentials to DB if they exist in env
+    # Seed system_configs from env ONLY when a value is not already stored,
+    # so that values saved via the UI are not overwritten on restart.
     async with AsyncSessionLocal() as db:
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-        
-        if client_id:
-            await crud.set_system_config(db, "google_client_id", client_id)
-            print(f"Synced GOOGLE_CLIENT_ID from env to DB")
-        
-        if client_secret:
-            await crud.set_system_config(db, "google_client_secret", client_secret)
-            print(f"Synced GOOGLE_CLIENT_SECRET from env to DB")
+        # Meta app credentials are shared by Facebook and Instagram, so accept
+        # the legacy FACEBOOK_APP_ID / FACEBOOK_APP_SECRET as fallbacks.
+        meta_id = os.getenv("FACEBOOK_APP_ID") or ""
+        meta_secret = os.getenv("FACEBOOK_APP_SECRET") or ""
 
-        # Instagram
-        ig_id = os.getenv("INSTAGRAM_CLIENT_ID")
-        ig_secret = os.getenv("INSTAGRAM_CLIENT_SECRET")
-        if ig_id: await crud.set_system_config(db, "instagram_client_id", ig_id)
-        if ig_secret: await crud.set_system_config(db, "instagram_client_secret", ig_secret)
-        
-        # Facebook
-        fb_id = os.getenv("FACEBOOK_CLIENT_ID")
-        fb_secret = os.getenv("FACEBOOK_CLIENT_SECRET")
-        if fb_id: await crud.set_system_config(db, "facebook_client_id", fb_id)
-        if fb_secret: await crud.set_system_config(db, "facebook_client_secret", fb_secret)
+        seeds = {
+            "google_client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "google_client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "instagram_client_id": os.getenv("INSTAGRAM_CLIENT_ID") or meta_id,
+            "instagram_client_secret": os.getenv("INSTAGRAM_CLIENT_SECRET") or meta_secret,
+            "facebook_client_id": os.getenv("FACEBOOK_CLIENT_ID") or meta_id,
+            "facebook_client_secret": os.getenv("FACEBOOK_CLIENT_SECRET") or meta_secret,
+            "x_client_id": os.getenv("X_CLIENT_ID"),
+            "x_client_secret": os.getenv("X_CLIENT_SECRET"),
+        }
 
-        # X
-        x_id = os.getenv("X_CLIENT_ID")
-        x_secret = os.getenv("X_CLIENT_SECRET")
-        if x_id: await crud.set_system_config(db, "x_client_id", x_id)
-        if x_secret: await crud.set_system_config(db, "x_client_secret", x_secret)
+        for key, env_value in seeds.items():
+            if not env_value:
+                continue
+            existing = await crud.get_system_config(db, key)
+            if existing:
+                continue
+            await crud.set_system_config(db, key, env_value)
+            print(f"Seeded {key} from env into system_configs")
 
 @app.get("/")
 async def root():
@@ -184,6 +181,40 @@ async def submit_video(video: schemas.VideoSourceCreate, background_tasks: Backg
     # Run processing in-process (no Celery/Redis needed)
     background_tasks.add_task(tasks.process_video_task, db_video.id, db_video.original_url)
 
+    return db_video
+
+
+@app.post("/videos/upload", response_model=schemas.VideoSource)
+async def upload_video(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_id: int = 1,
+    db: AsyncSession = Depends(database.get_db),
+):
+    """Accept a raw video file, save it to disk, and kick off analysis."""
+    import uuid
+    upload_dir = "/app/data/uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
+    if ext not in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+
+    dest_path = os.path.join(upload_dir, f"{uuid.uuid4()}{ext}")
+    with open(dest_path, "wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+
+    video_data = schemas.VideoSourceCreate(
+        original_url=f"file://{dest_path}",
+        user_id=user_id,
+    )
+    db_video = await crud.create_video_source(db=db, video=video_data)
+
+    background_tasks.add_task(tasks.process_video_task, db_video.id, db_video.original_url)
     return db_video
 
 @app.get("/videos/{video_id}", response_model=schemas.VideoSource)

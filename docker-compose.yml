@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
@@ -15,16 +13,8 @@ services:
     networks:
       - app-network
 
-  redis:
-    image: redis:7-alpine
-    restart: always
-    ports:
-      - "6379:6379"
-    networks:
-      - app-network
-
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -35,8 +25,6 @@ services:
       - "8001:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/videoclipper
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
@@ -45,41 +33,13 @@ services:
       - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
       - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
       - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
+      - FACEBOOK_APP_ID=${FACEBOOK_APP_ID}
+      - FACEBOOK_APP_SECRET=${FACEBOOK_APP_SECRET}
       - X_CLIENT_ID=${X_CLIENT_ID}
       - X_CLIENT_SECRET=${X_CLIENT_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     depends_on:
       - db
-      - redis
-    networks:
-      - app-network
-
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    command: celery -A app.worker.celery_app worker --loglevel=info
-    volumes:
-      - ./backend:/app
-      - ./data:/app/data
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:password@db:5432/videoclipper
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID}
-      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET}
-      - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
-      - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-      - X_CLIENT_ID=${X_CLIENT_ID}
-      - X_CLIENT_SECRET=${X_CLIENT_SECRET}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-    depends_on:
-      - db
-      - redis
-      - backend
     networks:
       - app-network
 
