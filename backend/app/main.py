@@ -40,7 +40,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import secrets
 # In production, use a secure random string from env
 SECRET_KEY = os.getenv("SESSION_SECRET", "super-secret-dev-key") 
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="none", https_only=True)
 from . import models, schemas, crud, database
 from .database import engine, get_db, AsyncSessionLocal
 from sqlalchemy.future import select
