@@ -16,7 +16,9 @@ SCOPES = [
 ]
 
 # Redirect URI (must match Google Cloud Console)
-REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3000/auth/callback")
+# Prefer explicit GOOGLE_REDIRECT_URI, otherwise derive from FRONTEND_URL
+_FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", f"{_FRONTEND_URL}/auth/callback")
 
 from ..security import decrypt_token
 
