@@ -1,6 +1,116 @@
 import yt_dlp
 import os
+import re
 import uuid
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _parse_iso8601_duration(duration: str) -> float:
+    m = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration or '')
+    if not m:
+        return 0
+    h, mi, s = (int(v) if v else 0 for v in m.groups())
+    return h * 3600 + mi * 60 + s
+
+
+def get_video_metadata_via_api(url: str, credentials_dict: dict) -> dict | None:
+    """Fetch metadata using YouTube Data API with user's OAuth credentials."""
+    vid = _extract_youtube_video_id(url)
+    if not vid:
+        return None
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import google.auth.transport.requests
+
+        creds = Credentials(
+            token=credentials_dict['access_token'],
+            refresh_token=credentials_dict['refresh_token'],
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=credentials_dict['client_id'],
+            client_secret=credentials_dict['client_secret'],
+        )
+        if creds.expired:
+            creds.refresh(google.auth.transport.requests.Request())
+
+        youtube = build('youtube', 'v3', credentials=creds)
+        resp = youtube.videos().list(part="snippet,contentDetails,statistics", id=vid).execute()
+        items = resp.get('items', [])
+        if not items:
+            return None
+
+        item = items[0]
+        snippet = item['snippet']
+        content = item['contentDetails']
+        stats = item.get('statistics', {})
+        thumbs = snippet.get('thumbnails', {})
+        thumb_url = (thumbs.get('maxres') or thumbs.get('high') or thumbs.get('medium') or thumbs.get('default', {})).get('url')
+
+        return {
+            "title": snippet.get("title"),
+            "thumbnail": thumb_url,
+            "duration": _parse_iso8601_duration(content.get("duration")),
+            "description": snippet.get("description", ""),
+            "channel": snippet.get("channelTitle", ""),
+            "view_count": int(stats.get("viewCount", 0)),
+            "width": None,
+            "height": None,
+        }
+    except Exception as e:
+        print(f"YouTube API metadata error: {e}")
+        return None
+
+
+def get_video_transcript_via_api(url: str, credentials_dict: dict) -> str:
+    """Fetch captions using YouTube Data API."""
+    vid = _extract_youtube_video_id(url)
+    if not vid:
+        return ""
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import google.auth.transport.requests
+        import requests as http_requests
+
+        creds = Credentials(
+            token=credentials_dict['access_token'],
+            refresh_token=credentials_dict['refresh_token'],
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=credentials_dict['client_id'],
+            client_secret=credentials_dict['client_secret'],
+        )
+        if creds.expired:
+            creds.refresh(google.auth.transport.requests.Request())
+
+        youtube = build('youtube', 'v3', credentials=creds)
+        captions_resp = youtube.captions().list(part="snippet", videoId=vid).execute()
+        caption_items = captions_resp.get('items', [])
+        if not caption_items:
+            return ""
+
+        en_caption = next((c for c in caption_items if c['snippet']['language'] == 'en'), None)
+        if not en_caption:
+            en_caption = caption_items[0]
+
+        caption_id = en_caption['id']
+        resp = youtube.captions().download(id=caption_id, tfmt='srt').execute()
+        lines = resp.decode('utf-8', errors='replace').split('\n')
+        text_lines = [l for l in lines if l.strip() and not l.strip().isdigit() and '-->' not in l]
+        return ' '.join(text_lines)
+    except Exception as e:
+        print(f"YouTube API transcript error: {e}")
+        return ""
+
 
 def get_video_metadata(url: str) -> dict:
     """

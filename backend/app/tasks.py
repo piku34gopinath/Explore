@@ -1,6 +1,7 @@
 from .database import SessionLocal
-from .models import VideoSource, GeneratedClip, ClipSuggestion, ProcessingStatus
+from .models import VideoSource, GeneratedClip, ClipSuggestion, ProcessingStatus, YouTubeConfig
 from .services import downloader, transcriber, analyzer, editor
+from .security import decrypt_token
 import os
 import json
 import subprocess
@@ -12,6 +13,27 @@ def _is_local_file(url: str) -> bool:
 
 def _local_path(url: str) -> str:
     return url[len("file://"):] if _is_local_file(url) else url
+
+
+def _get_youtube_credentials(db, user_id: int) -> dict | None:
+    config = db.query(YouTubeConfig).filter(
+        YouTubeConfig.user_id == user_id,
+        YouTubeConfig.is_connected == True
+    ).first()
+    if not config or not config.access_token:
+        return None
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    return {
+        "access_token": decrypt_token(config.access_token),
+        "refresh_token": decrypt_token(config.refresh_token),
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+
+
+def _is_youtube_url(url: str) -> bool:
+    return "youtube.com/" in url or "youtu.be/" in url
 
 
 def _probe_local_video(path: str) -> dict:
@@ -86,9 +108,17 @@ def process_video_task(video_id: int, video_url: str):
         db.commit()
 
         try:
+            yt_creds = None
+            if _is_youtube_url(video_url):
+                yt_creds = _get_youtube_credentials(db, video.user_id)
+
             if _is_local_file(video_url):
                 local_path = _local_path(video_url)
                 metadata = _probe_local_video(local_path)
+            elif yt_creds:
+                metadata = downloader.get_video_metadata_via_api(video_url, yt_creds)
+                if not metadata:
+                    metadata = downloader.get_video_metadata(video_url)
             else:
                 metadata = downloader.get_video_metadata(video_url)
             video.title = metadata.get("title")
@@ -99,8 +129,11 @@ def process_video_task(video_id: int, video_url: str):
             db.commit()
 
             if _is_local_file(video_url):
-                # Whisper transcription on the uploaded file
                 transcript = transcriber.transcribe_audio(_local_path(video_url)) or ""
+            elif yt_creds:
+                transcript = downloader.get_video_transcript_via_api(video_url, yt_creds)
+                if not transcript:
+                    transcript = downloader.get_video_transcript(video_url)
             else:
                 transcript = downloader.get_video_transcript(video_url)
             if not transcript or len(transcript) < 100:
