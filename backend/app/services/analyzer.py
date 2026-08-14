@@ -3,6 +3,28 @@ import anthropic
 import google.generativeai as genai
 import os
 import json
+import time
+
+
+def _retry(fn, attempts: int = 3, base_delay: float = 2.0):
+    """
+    Retry a callable on transient upstream errors (timeouts, 5xx gateway errors).
+    Re-raises immediately for non-transient errors so real bugs surface fast.
+    """
+    transient_markers = ("504", "503", "500", "timed out", "timeout", "deadline", "unavailable")
+    last_exc = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:
+            msg = str(e).lower()
+            last_exc = e
+            if not any(m in msg for m in transient_markers) or i == attempts - 1:
+                raise
+            wait = base_delay * (2 ** i)
+            print(f"Transient AI error (attempt {i+1}/{attempts}): {e}. Retrying in {wait:.0f}s...")
+            time.sleep(wait)
+    raise last_exc
 
 def get_client(provider: str, api_key: str = None, model: str = "gpt-4o"):
     if provider == "openai":
@@ -285,12 +307,13 @@ ONLY return the JSON array, no other text."""
         client = get_client(provider, api_key, model)
         
         if provider == "openai":
-            response = client.chat.completions.create(
+            response = _retry(lambda: client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                response_format={"type": "json_object"}
-            )
+                response_format={"type": "json_object"},
+                timeout=120,
+            ))
             result_text = response.choices[0].message.content
             
             # Parse the response - it might be wrapped in an object
@@ -313,11 +336,11 @@ ONLY return the JSON array, no other text."""
             return suggestions
                 
         elif provider == "anthropic":
-            response = client.messages.create(
+            response = _retry(lambda: client.messages.create(
                 model=model,
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}]
-            )
+            ))
             suggestions = json.loads(response.content[0].text)
             
             # VALIDATE TIMESTAMP DIVERSITY
@@ -328,7 +351,10 @@ ONLY return the JSON array, no other text."""
             return suggestions
             
         elif provider == "gemini":
-            response = client.generate_content(prompt)
+            response = _retry(lambda: client.generate_content(
+                prompt,
+                request_options={"timeout": 120},
+            ))
             # Extract JSON from markdown code blocks if present
             text = response.text
             if "```json" in text:
