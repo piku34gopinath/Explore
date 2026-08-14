@@ -58,6 +58,7 @@ interface ClipSuggestion {
 interface Video {
   id: number;
   title: string;
+  original_url: string;
   status: string;
   progress: number;
   error_message?: string;
@@ -110,6 +111,8 @@ export default function VideoPage() {
   const [selectedQualities, setSelectedQualities] = useState<Record<number, string>>({});
   const [capturingThumbnail, setCapturingThumbnail] = useState(false);
   const [thumbnailTimestamp, setThumbnailTimestamp] = useState(0);
+  const [sourceUploading, setSourceUploading] = useState(false);
+  const [sourceUploaded, setSourceUploaded] = useState(false);
 
   const toggleAccount = (account: any, platform: string) => {
     const accountKey = `${platform}-${account.id}`;
@@ -266,6 +269,39 @@ export default function VideoPage() {
       console.error("Error regenerating suggestions:", error);
     }
   };
+
+  const handleSourceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !video) return;
+    setSourceUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      await axios.post(`${API_URL}/videos/${video.id}/upload-source`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setSourceUploaded(true);
+      fetchVideo();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Upload failed");
+    } finally {
+      setSourceUploading(false);
+    }
+  };
+
+  const retryGeneration = async (suggestionId: number) => {
+    const quality = selectedQualities[suggestionId] || "1080p";
+    try {
+      await axios.post(`${API_URL}/videos/${videoId}/suggestions/${suggestionId}/approve?quality=${quality}`);
+      fetchVideo();
+    } catch (error) {
+      console.error("Error retrying generation:", error);
+    }
+  };
+
+  const isYouTubeUrl = video?.original_url && (video.original_url.includes("youtube.com/") || video.original_url.includes("youtu.be/"));
+  const hasFailedSuggestions = video?.suggestions?.some(s => s.status === "failed");
+  const showSourceUpload = isYouTubeUrl && hasFailedSuggestions && !sourceUploaded;
 
   const downloadClip = async (clipPath: string, title: string) => {
     try {
@@ -489,6 +525,50 @@ export default function VideoPage() {
             </Button>
           </div>
 
+          {showSourceUpload && (
+            <Alert className="border-yellow-500/30 bg-yellow-500/5">
+              <AlertCircle className="h-4 w-4 text-yellow-500" />
+              <AlertTitle>Clip rendering needs the video file</AlertTitle>
+              <AlertDescription className="mt-2 space-y-3">
+                <p className="text-sm">
+                  YouTube blocks video downloads from cloud servers. Upload the video file from your computer to enable clip generation.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={sourceUploading}
+                    onClick={() => document.getElementById("source-upload")?.click()}
+                  >
+                    {sourceUploading ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
+                    ) : (
+                      "Upload Video File"
+                    )}
+                  </Button>
+                  <input
+                    type="file"
+                    id="source-upload"
+                    className="hidden"
+                    accept="video/*"
+                    onChange={handleSourceUpload}
+                  />
+                  <span className="text-xs text-muted-foreground">MP4, MOV, MKV, WebM</span>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {sourceUploaded && (
+            <Alert className="border-green-500/30 bg-green-500/5">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              <AlertTitle>Video file uploaded</AlertTitle>
+              <AlertDescription>
+                Click &quot;Retry&quot; on any failed suggestion to generate the clip.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {video.suggestions.map((suggestion) => (
               <Card key={suggestion.id} className="overflow-hidden border-2 hover:border-primary/50 transition-all">
@@ -577,9 +657,22 @@ export default function VideoPage() {
                       </div>
                     )}
                     {suggestion.status === 'failed' && (
-                      <div className="flex items-center justify-center w-full py-2 text-sm text-destructive font-medium bg-destructive/5 rounded-lg border border-destructive/20">
-                        <AlertCircle className="h-4 w-4 mr-2" />
-                        Generation Failed
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-center w-full py-2 text-sm text-destructive font-medium bg-destructive/5 rounded-lg border border-destructive/20">
+                          <AlertCircle className="h-4 w-4 mr-2" />
+                          Generation Failed
+                        </div>
+                        {(sourceUploaded || !isYouTubeUrl) && (
+                          <Button
+                            className="w-full"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => retryGeneration(suggestion.id)}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-1" />
+                            Retry
+                          </Button>
+                        )}
                       </div>
                     )}
                     {suggestion.status === 'rejected' && (

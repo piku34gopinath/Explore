@@ -220,6 +220,44 @@ async def upload_video(
     background_tasks.add_task(tasks.process_video_task, db_video.id, db_video.original_url)
     return db_video
 
+@app.post("/videos/{video_id}/upload-source")
+async def upload_video_source(
+    video_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(database.get_db),
+):
+    """Upload a video file to link with an existing video entry (for YouTube URL videos where server-side download fails)."""
+    import uuid
+    video = await crud.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    upload_dir = "/app/data/uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".mp4"
+    if ext not in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+
+    dest_path = os.path.join(upload_dir, f"{uuid.uuid4()}{ext}")
+    with open(dest_path, "wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+
+    from sqlalchemy import update
+    await db.execute(
+        update(models.VideoSource)
+        .where(models.VideoSource.id == video_id)
+        .values(original_url=f"file://{dest_path}")
+    )
+    await db.commit()
+
+    return {"status": "success", "message": "Video file uploaded. You can now retry clip generation."}
+
+
 @app.get("/videos/{video_id}", response_model=schemas.VideoSource)
 async def get_video_status(video_id: int, db: AsyncSession = Depends(database.get_db)):
     db_video = await crud.get_video(db, video_id=video_id)
