@@ -301,7 +301,9 @@ export default function VideoPage() {
 
   const isYouTubeUrl = !!video?.original_url && (video.original_url.includes("youtube.com/") || video.original_url.includes("youtu.be/"));
   const hasLocalFile = !!video?.original_url?.startsWith("file://");
-  const showSourceUpload = isYouTubeUrl && !hasLocalFile && !sourceUploaded;
+  const hasFailedSuggestions = !!video?.suggestions?.some(s => s.status === "failed");
+  // Only prompt for a manual upload as a fallback, after a link-based render fails.
+  const showSourceUpload = isYouTubeUrl && !hasLocalFile && !sourceUploaded && hasFailedSuggestions;
 
   const downloadClip = async (clipPath: string, title: string) => {
     try {
@@ -528,10 +530,10 @@ export default function VideoPage() {
           {showSourceUpload && (
             <Alert className="border-yellow-500/30 bg-yellow-500/5">
               <AlertCircle className="h-4 w-4 text-yellow-500" />
-              <AlertTitle>Upload the video file before generating clips</AlertTitle>
+              <AlertTitle>Couldn&apos;t pull this video from YouTube — upload it instead</AlertTitle>
               <AlertDescription className="mt-2 space-y-3">
                 <p className="text-sm">
-                  YouTube blocks video downloads from cloud servers. To generate clips, download this YouTube video to your computer and upload the file here first.
+                  The server couldn&apos;t download this YouTube video (bot protection). Download the video to your computer and upload the file here, then click Retry.
                 </p>
                 <div className="flex items-center gap-3">
                   <Button
@@ -623,11 +625,10 @@ export default function VideoPage() {
                           <Button
                             className="flex-1"
                             size="sm"
-                            disabled={showSourceUpload}
                             onClick={() => approveSuggestion(suggestion.id)}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            {showSourceUpload ? "Upload file first ↑" : "Generate"}
+                            Generate
                           </Button>
                           <Button
                             variant="outline"

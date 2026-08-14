@@ -3,6 +3,41 @@ import os
 import re
 import uuid
 
+_COOKIE_FILE_PATH = "/tmp/youtube_cookies.txt"
+
+
+def _get_cookiefile() -> str | None:
+    """
+    Materialize YouTube cookies for yt-dlp so downloads work from cloud IPs.
+
+    Priority:
+    1. YOUTUBE_COOKIES_FILE env var pointing to an existing cookies.txt
+    2. YOUTUBE_COOKIES env var containing Netscape-format cookie text
+    Returns the path to a cookies file, or None if not configured.
+    """
+    explicit = os.getenv("YOUTUBE_COOKIES_FILE")
+    if explicit and os.path.exists(explicit):
+        return explicit
+
+    raw = os.getenv("YOUTUBE_COOKIES")
+    if raw:
+        try:
+            # Support values pasted with literal "\n" instead of real newlines.
+            content = raw.replace("\\n", "\n")
+            with open(_COOKIE_FILE_PATH, "w") as f:
+                f.write(content)
+            return _COOKIE_FILE_PATH
+        except Exception as e:
+            print(f"Failed to write cookie file: {e}")
+    return None
+
+
+def _apply_cookies(ydl_opts: dict) -> dict:
+    cookiefile = _get_cookiefile()
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
+    return ydl_opts
+
 
 def _extract_youtube_video_id(url: str) -> str | None:
     patterns = [
@@ -126,7 +161,7 @@ def get_video_metadata(url: str) -> dict:
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(_apply_cookies(ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=False)
 
         return {
@@ -161,7 +196,7 @@ def get_video_transcript(url: str) -> str:
     }
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(_apply_cookies(ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=False)
             
         # Try to get subtitles
@@ -227,7 +262,7 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(_apply_cookies(ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
@@ -256,7 +291,7 @@ def download_video(url: str, output_dir: str = "/app/data/downloads") -> dict:
     }
     
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(_apply_cookies(ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             
