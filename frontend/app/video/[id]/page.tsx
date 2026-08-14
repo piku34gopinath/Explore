@@ -299,8 +299,8 @@ export default function VideoPage() {
     }
   };
 
-  const isYouTubeUrl = video?.original_url && (video.original_url.includes("youtube.com/") || video.original_url.includes("youtu.be/"));
-  const hasLocalFile = video?.original_url?.startsWith("file://");
+  const isYouTubeUrl = !!video?.original_url && (video.original_url.includes("youtube.com/") || video.original_url.includes("youtu.be/"));
+  const hasLocalFile = !!video?.original_url?.startsWith("file://");
   const showSourceUpload = isYouTubeUrl && !hasLocalFile && !sourceUploaded;
 
   const downloadClip = async (clipPath: string, title: string) => {
@@ -620,16 +620,17 @@ export default function VideoPage() {
                           </Select>
                         </div>
                         <div className="flex gap-2">
-                          <Button 
-                            className="flex-1" 
+                          <Button
+                            className="flex-1"
                             size="sm"
+                            disabled={showSourceUpload}
                             onClick={() => approveSuggestion(suggestion.id)}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            Generate
+                            {showSourceUpload ? "Upload file first ↑" : "Generate"}
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => rejectSuggestion(suggestion.id)}
                           >
