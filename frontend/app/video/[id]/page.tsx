@@ -300,8 +300,8 @@ export default function VideoPage() {
   };
 
   const isYouTubeUrl = video?.original_url && (video.original_url.includes("youtube.com/") || video.original_url.includes("youtu.be/"));
-  const hasFailedSuggestions = video?.suggestions?.some(s => s.status === "failed");
-  const showSourceUpload = isYouTubeUrl && hasFailedSuggestions && !sourceUploaded;
+  const hasLocalFile = video?.original_url?.startsWith("file://");
+  const showSourceUpload = isYouTubeUrl && !hasLocalFile && !sourceUploaded;
 
   const downloadClip = async (clipPath: string, title: string) => {
     try {
@@ -528,10 +528,10 @@ export default function VideoPage() {
           {showSourceUpload && (
             <Alert className="border-yellow-500/30 bg-yellow-500/5">
               <AlertCircle className="h-4 w-4 text-yellow-500" />
-              <AlertTitle>Clip rendering needs the video file</AlertTitle>
+              <AlertTitle>Upload the video file before generating clips</AlertTitle>
               <AlertDescription className="mt-2 space-y-3">
                 <p className="text-sm">
-                  YouTube blocks video downloads from cloud servers. Upload the video file from your computer to enable clip generation.
+                  YouTube blocks video downloads from cloud servers. To generate clips, download this YouTube video to your computer and upload the file here first.
                 </p>
                 <div className="flex items-center gap-3">
                   <Button
@@ -559,12 +559,12 @@ export default function VideoPage() {
             </Alert>
           )}
 
-          {sourceUploaded && (
+          {hasLocalFile && (
             <Alert className="border-green-500/30 bg-green-500/5">
               <CheckCircle className="h-4 w-4 text-green-500" />
-              <AlertTitle>Video file uploaded</AlertTitle>
+              <AlertTitle>Video file ready</AlertTitle>
               <AlertDescription>
-                Click &quot;Retry&quot; on any failed suggestion to generate the clip.
+                Click &quot;Generate&quot; on any suggestion to render the clip.
               </AlertDescription>
             </Alert>
           )}
@@ -662,7 +662,7 @@ export default function VideoPage() {
                           <AlertCircle className="h-4 w-4 mr-2" />
                           Generation Failed
                         </div>
-                        {(sourceUploaded || !isYouTubeUrl) && (
+                        {hasLocalFile && (
                           <Button
                             className="w-full"
                             size="sm"
