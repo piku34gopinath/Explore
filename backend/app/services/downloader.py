@@ -122,12 +122,13 @@ def get_video_metadata(url: str) -> dict:
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'extractor_args': {'youtube': {'player_client': ['ios,web_creator']}},
     }
-    
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
+
         return {
             "title": info.get("title"),
             "thumbnail": info.get("thumbnail"),
@@ -156,6 +157,7 @@ def get_video_transcript(url: str) -> str:
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'extractor_args': {'youtube': {'player_client': ['ios,web_creator']}},
     }
     
     try:
@@ -211,6 +213,10 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
         'quiet': False,
         'no_warnings': False,
         'nocheckcertificate': True,
+        'extractor_args': {'youtube': {'player_client': ['ios,web_creator']}},
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
         'external_downloader': 'ffmpeg',
         'external_downloader_args': {
             'ffmpeg_i': [
@@ -219,12 +225,12 @@ def download_video_segment(url: str, start_time: float, end_time: float, output_
             ]
         },
     }
-    
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            
+
         print(f"✓ Downloaded segment {start_time}-{end_time}s: {filename}")
         return filename
     except Exception as e:
