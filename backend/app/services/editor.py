@@ -1,111 +1,119 @@
-from moviepy.editor import VideoFileClip
 import os
 import uuid
-import PIL.Image
+import json
+import subprocess
 
-# Compatibility patch for newer Pillow versions used by MoviePy
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
+
+def _parse_time(time_str) -> float:
+    """Handle HH:MM:SS,mmm format from SRT or simple seconds."""
+    try:
+        s = str(time_str)
+        if ":" in s:
+            h, m, sec = s.replace(',', '.').split(':')
+            return int(h) * 3600 + int(m) * 60 + float(sec)
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def _probe_dimensions(path: str) -> tuple[int | None, int | None]:
+    """Return (width, height) of a video's first video stream via ffprobe."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "json", path,
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        data = json.loads(result.stdout)
+        stream = (data.get("streams") or [{}])[0]
+        return stream.get("width"), stream.get("height")
+    except Exception as e:
+        print(f"[EDITOR] ffprobe dimension error: {e}")
+        return None, None
+
 
 def create_vertical_clip(source_path: str, start_time: str, end_time: str, output_dir: str = "/app/data/clips", target_height: int = 1920) -> dict:
-    os.makedirs(output_dir, exist_ok=True)
-    
-    def parse_time(time_str):
-        # Handle HH:MM:SS,mmm format from SRT or simple seconds
-        try:
-            if ":" in time_str:
-                h, m, s = time_str.replace(',', '.').split(':')
-                return int(h) * 3600 + int(m) * 60 + float(s)
-            return float(time_str)
-        except:
-            return 0
+    """
+    Cut a segment, crop to 9:16, and encode using a streaming ffmpeg subprocess.
 
-    start_seconds = parse_time(start_time)
-    end_seconds = parse_time(end_time)
-    
+    This uses ffmpeg directly (not MoviePy) so memory usage stays flat and
+    constant — critical on small cloud instances (e.g. Render free tier, 512MB
+    RAM) where MoviePy's in-memory frame handling gets OOM-killed.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    start_seconds = _parse_time(start_time)
+    end_seconds = _parse_time(end_time)
+    duration = max(0.1, end_seconds - start_seconds)
+
     clip_id = str(uuid.uuid4())
     output_path = os.path.join(output_dir, f"{clip_id}.mp4")
     thumbnail_path = os.path.join(output_dir, f"{clip_id}.jpg")
-    
-    with VideoFileClip(source_path) as video:
-        # Prevent upscaling beyond source resolution
-        actual_target_height = min(target_height, video.h)
-        
-        # Cut the clip
-        clip = video.subclip(start_seconds, end_seconds)
-        
-        # Crop to 9:16 vertical
-        w, h = clip.size
-        target_ratio = 9/16
-        new_w = h * target_ratio
-        
-        if new_w > w:
-            # If video is too skinny/tall, fit width
-            new_h = w / target_ratio
-            clip = clip.crop(x1=0, y1=(h-new_h)/2, x2=w, y2=(h+new_h)/2)
-        else:
-            # Standard landscape to vertical crop
-            clip = clip.crop(x1=(w-new_w)/2, y1=0, x2=(w+new_w)/2, y2=h)
-            
-        # Resize to target height
-        clip = clip.resize(height=actual_target_height)
-        
-        # IMPORTANT: FFmpeg libx264 requires width/height to be divisible by 2
-        final_w, final_h = clip.size
-        if final_w % 2 != 0:
-            final_w = (final_w // 2) * 2
-        if final_h % 2 != 0:
-            final_h = (final_h // 2) * 2
-            
-        if (final_w, final_h) != clip.size:
-            print(f"[EDITOR] Adjusting dimensions for FFmpeg compatibility: {clip.size} -> ({final_w}, {final_h})")
-            clip = clip.resize(newsize=(final_w, final_h))
-        
-        # Capture a frame for thumbnail (middle of the clip)
-        clip.save_frame(thumbnail_path, t=(end_seconds - start_seconds) / 2)
-        
-        # High-quality encoding settings
-        # Dynamic bitrate and quality settings
-        # We use CRF for quality control, so bitrate is primarily a ceiling/hint
-        actual_width, actual_height = clip.size # Get dimensions after resizing
 
-        if actual_height >= 2160:
-            bitrate = "25000k"
-            crf = "17" # Even higher quality for 4K
-        elif actual_height >= 1080:
-            bitrate = "12000k"
-            crf = "18"
-        else:
-            bitrate = "6000k"
-            crf = "20"
+    # Cap the target height at the source height to avoid upscaling.
+    _, src_height = _probe_dimensions(source_path)
+    if src_height:
+        target_height = min(target_height, src_height)
 
-        print(f"[EDITOR] Creating vertical clip: {actual_width}x{actual_height} at {bitrate} (CRF {crf})")
+    # Choose quality/speed by resolution. "veryfast" keeps CPU + memory low on
+    # constrained instances; CRF controls visual quality.
+    if target_height >= 2160:
+        crf = "20"
+    elif target_height >= 1080:
+        crf = "21"
+    else:
+        crf = "23"
 
-        # High-quality encoding settings
-        clip.write_videofile(
-            output_path,
-            codec="libx264",
-            audio_codec="aac",
-            bitrate=bitrate,
-            preset="slow",
-            ffmpeg_params=[
-                "-crf", crf,
-                "-profile:v", "high",
-                "-level", "4.2",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                # Professional Sharpening Filter: makes human faces and text pop
-                "-vf", "unsharp=5:5:0.8:5:5:0.0" 
-            ]
-        )
-        
-        final_size = os.path.getsize(output_path)
-        final_w, final_h = clip.size
-        
+    # Center-crop to a 9:16 aspect ratio, then scale to the target height.
+    # scale=-2 keeps width auto and divisible by 2 (required by libx264).
+    vf = (
+        "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',"
+        f"scale=-2:{target_height},"
+        "unsharp=5:5:0.8:5:5:0.0"
+    )
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start_seconds),
+        "-i", source_path,
+        "-t", str(duration),
+        "-vf", vf,
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", crf,
+        "-profile:v", "high",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        output_path,
+    ]
+
+    print(f"[EDITOR] Rendering clip -> {output_path} (h={target_height}, crf={crf}, dur={duration:.1f}s)")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0 or not os.path.exists(output_path):
+        raise Exception(f"ffmpeg render failed: {result.stderr[-800:]}")
+
+    # Grab a thumbnail from the middle of the clip (relative to the trimmed segment).
+    thumb_cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start_seconds + duration / 2),
+        "-i", source_path,
+        "-vf", "crop='min(iw,ih*9/16)':'min(ih,iw*16/9)',scale=-2:%d" % target_height,
+        "-frames:v", "1",
+        thumbnail_path,
+    ]
+    subprocess.run(thumb_cmd, capture_output=True, text=True)
+
+    final_w, final_h = _probe_dimensions(output_path)
+    final_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+
     return {
         "file_path": output_path,
-        "thumbnail_path": thumbnail_path,
+        "thumbnail_path": thumbnail_path if os.path.exists(thumbnail_path) else None,
         "width": final_w,
         "height": final_h,
-        "file_size": final_size
+        "file_size": final_size,
     }
