@@ -1,28 +1,51 @@
 export const COMPRESSION_THRESHOLD_BYTES = 80 * 1024 * 1024;
 
-const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
+const CDN = "https://unpkg.com";
+const FFMPEG_VERSION = "0.12.15";
+const UTIL_VERSION = "0.12.2";
+const CORE_VERSION = "0.12.10";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 let ffmpegInstance: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let loadPromise: Promise<any> | null = null;
+
+async function loadScript(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${url}"]`)) {
+      resolve();
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${url}`));
+    document.head.appendChild(s);
+  });
+}
 
 async function loadFFmpeg(onLog?: (msg: string) => void) {
   if (ffmpegInstance) return ffmpegInstance;
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    // Dynamic import avoids Turbopack resolving the "node" export condition
-    // at build time (which maps to an empty stub that throws).
-    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-    const { toBlobURL } = await import("@ffmpeg/util");
+    // Load ffmpeg.wasm UMD bundles from CDN — avoids all bundler resolution
+    // issues (Turbopack picks the "node" exports condition and gets an empty stub).
+    await loadScript(`${CDN}/@ffmpeg/ffmpeg@${FFMPEG_VERSION}/dist/umd/ffmpeg.js`);
+    await loadScript(`${CDN}/@ffmpeg/util@${UTIL_VERSION}/dist/umd/util.js`);
 
-    const ffmpeg = new FFmpeg();
+    const FFmpegWASM = (globalThis as any).FFmpegWASM;
+    const FFmpegUtil = (globalThis as any).FFmpegUtil;
+
+    if (!FFmpegWASM?.FFmpeg) throw new Error("FFmpeg WASM failed to load from CDN");
+    if (!FFmpegUtil?.toBlobURL) throw new Error("FFmpeg util failed to load from CDN");
+
+    const ffmpeg = new FFmpegWASM.FFmpeg();
     if (onLog) ffmpeg.on("log", ({ message }: { message: string }) => onLog(message));
 
+    const coreBase = `${CDN}/@ffmpeg/core@${CORE_VERSION}/dist/umd`;
     await ffmpeg.load({
-      coreURL: await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+      coreURL: await FFmpegUtil.toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await FFmpegUtil.toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm"),
     });
 
     ffmpegInstance = ffmpeg;
@@ -31,8 +54,9 @@ async function loadFFmpeg(onLog?: (msg: string) => void) {
 
   try {
     return await loadPromise;
-  } finally {
+  } catch (e) {
     loadPromise = null;
+    throw e;
   }
 }
 
@@ -52,8 +76,8 @@ export async function compressVideo(
     );
   }
 
-  const { fetchFile } = await import("@ffmpeg/util");
   const ffmpeg = await loadFFmpeg();
+  const FFmpegUtil = (globalThis as any).FFmpegUtil;
 
   const inputName = "input" + (file.name.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4");
   const outputName = "output.mp4";
@@ -64,7 +88,7 @@ export async function compressVideo(
     });
   }
 
-  await ffmpeg.writeFile(inputName, await fetchFile(file));
+  await ffmpeg.writeFile(inputName, await FFmpegUtil.fetchFile(file));
 
   await ffmpeg.exec([
     "-i", inputName,
