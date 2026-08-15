@@ -1,24 +1,24 @@
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
-
-// Threshold above which we compress before upload (matches Render's ~100 MB
-// request body limit with some headroom for multipart overhead).
 export const COMPRESSION_THRESHOLD_BYTES = 80 * 1024 * 1024;
 
-let ffmpegInstance: FFmpeg | null = null;
-let loadPromise: Promise<FFmpeg> | null = null;
-
-// Single-tenant CDN for ffmpeg-core.wasm. Fetched via toBlobURL so the browser
-// can execute it under our COOP/COEP-isolated context.
 const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
-async function loadFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let ffmpegInstance: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let loadPromise: Promise<any> | null = null;
+
+async function loadFFmpeg(onLog?: (msg: string) => void) {
   if (ffmpegInstance) return ffmpegInstance;
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
+    // Dynamic import avoids Turbopack resolving the "node" export condition
+    // at build time (which maps to an empty stub that throws).
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+    const { toBlobURL } = await import("@ffmpeg/util");
+
     const ffmpeg = new FFmpeg();
-    if (onLog) ffmpeg.on("log", ({ message }) => onLog(message));
+    if (onLog) ffmpeg.on("log", ({ message }: { message: string }) => onLog(message));
 
     await ffmpeg.load({
       coreURL: await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript"),
@@ -37,18 +37,11 @@ async function loadFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg> {
 }
 
 export interface CompressOptions {
-  onProgress?: (fraction: number) => void; // 0..1
-  targetHeight?: number; // default 720
-  crf?: number; // 18 (great) .. 32 (small). default 28
+  onProgress?: (fraction: number) => void;
+  targetHeight?: number;
+  crf?: number;
 }
 
-/**
- * Compress a video file in the browser using ffmpeg.wasm.
- *
- * Returns a new File (mp4, H.264 + AAC) whose filename mirrors the input with
- * a `_compressed` suffix. The instance is cached across calls so subsequent
- * compressions skip the ~30 MB wasm download.
- */
 export async function compressVideo(
   file: File,
   { onProgress, targetHeight = 720, crf = 28 }: CompressOptions = {},
@@ -59,21 +52,20 @@ export async function compressVideo(
     );
   }
 
+  const { fetchFile } = await import("@ffmpeg/util");
   const ffmpeg = await loadFFmpeg();
 
   const inputName = "input" + (file.name.match(/\.[a-z0-9]+$/i)?.[0] ?? ".mp4");
   const outputName = "output.mp4";
 
   if (onProgress) {
-    ffmpeg.on("progress", ({ progress }) => {
-      // ffmpeg emits progress as 0..1, but sometimes overshoots slightly.
+    ffmpeg.on("progress", ({ progress }: { progress: number }) => {
       onProgress(Math.min(1, Math.max(0, progress)));
     });
   }
 
   await ffmpeg.writeFile(inputName, await fetchFile(file));
 
-  // scale=-2:H keeps width auto and divisible by 2 (required by libx264).
   await ffmpeg.exec([
     "-i", inputName,
     "-vf", `scale=-2:${targetHeight}`,
@@ -88,14 +80,11 @@ export async function compressVideo(
   ]);
 
   const data = await ffmpeg.readFile(outputName);
-  // Copy into a plain ArrayBuffer-backed Uint8Array (readFile can return a
-  // SharedArrayBuffer view, which the Blob constructor rejects on strict TS).
   const src = data as Uint8Array;
   const copy = new Uint8Array(new ArrayBuffer(src.byteLength));
   copy.set(src);
   const blob = new Blob([copy], { type: "video/mp4" });
 
-  // Clean up ffmpeg's virtual FS so repeat compressions don't accumulate.
   await ffmpeg.deleteFile(inputName);
   await ffmpeg.deleteFile(outputName);
 
