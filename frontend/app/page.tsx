@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Wand2, Mic, Smartphone, Play, ArrowRight, Upload as UploadIcon, Link as LinkIcon } from "lucide-react";
+import { compressVideo, COMPRESSION_THRESHOLD_BYTES } from "@/lib/video-compressor";
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -14,6 +15,8 @@ export default function Home() {
   const [mode, setMode] = useState<"url" | "file">("url");
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [compressProgress, setCompressProgress] = useState(0);
+  const [phase, setPhase] = useState<"idle" | "compressing" | "uploading" | "processing">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   
@@ -27,6 +30,7 @@ export default function Home() {
     e.preventDefault();
     setLoading(true);
     setUploadProgress(0);
+    setCompressProgress(0);
     try {
       let response;
       if (mode === "file") {
@@ -35,8 +39,31 @@ export default function Home() {
           setLoading(false);
           return;
         }
+
+        // Files above the server's request limit need to be compressed in the
+        // browser first — otherwise Render's reverse proxy rejects them.
+        let toUpload = file;
+        if (file.size > COMPRESSION_THRESHOLD_BYTES) {
+          setPhase("compressing");
+          try {
+            toUpload = await compressVideo(file, {
+              onProgress: (frac) => setCompressProgress(Math.round(frac * 100)),
+            });
+          } catch (err: any) {
+            console.error("Compression failed:", err);
+            alert(
+              `Couldn't compress the file in-browser: ${err?.message || err}. ` +
+              `Try a smaller file (< 80 MB) or a shorter clip.`,
+            );
+            setLoading(false);
+            setPhase("idle");
+            return;
+          }
+        }
+
+        setPhase("uploading");
         const form = new FormData();
-        form.append("file", file);
+        form.append("file", toUpload);
         response = await axios.post(`${API_URL}/videos/upload`, form, {
           headers: { "Content-Type": "multipart/form-data" },
           onUploadProgress: (evt) => {
@@ -44,6 +71,7 @@ export default function Home() {
           },
         });
       } else {
+        setPhase("processing");
         response = await axios.post(`${API_URL}/videos/submit`, {
           original_url: url,
           user_id: 1,
@@ -54,6 +82,7 @@ export default function Home() {
       console.error("Error submitting video:", error);
       alert("Failed to submit video. Please make sure the backend is running.");
       setLoading(false);
+      setPhase("idle");
     }
   };
 
@@ -157,15 +186,27 @@ export default function Home() {
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
-                    {mode === "file" && uploadProgress > 0 && uploadProgress < 100
-                      ? `Uploading ${uploadProgress}%`
-                      : "Processing..."}
+                    {phase === "compressing"
+                      ? `Compressing ${compressProgress}%`
+                      : phase === "uploading" && uploadProgress > 0 && uploadProgress < 100
+                        ? `Uploading ${uploadProgress}%`
+                        : "Processing..."}
                   </span>
                 ) : (
                   <span className="flex items-center gap-2">Generate <Wand2 className="w-4 h-4" /></span>
                 )}
               </Button>
             </form>
+            {mode === "file" && file && file.size > COMPRESSION_THRESHOLD_BYTES && phase === "idle" && (
+              <p className="text-xs text-amber-400/80 text-center">
+                Large file ({(file.size / (1024 * 1024)).toFixed(0)} MB) — we&apos;ll compress it in your browser first (may take a few minutes). Keep this tab open.
+              </p>
+            )}
+            {phase === "compressing" && (
+              <p className="text-xs text-violet-300/80 text-center">
+                Compressing in your browser — this can take several minutes for large files. Do not close the tab.
+              </p>
+            )}
           </CardContent>
         </Card>
         

@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { compressVideo, COMPRESSION_THRESHOLD_BYTES } from "@/lib/video-compressor";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -113,6 +114,8 @@ export default function VideoPage() {
   const [thumbnailTimestamp, setThumbnailTimestamp] = useState(0);
   const [sourceUploading, setSourceUploading] = useState(false);
   const [sourceUploaded, setSourceUploaded] = useState(false);
+  const [sourceCompressProgress, setSourceCompressProgress] = useState(0);
+  const [sourcePhase, setSourcePhase] = useState<"idle" | "compressing" | "uploading">("idle");
 
   const toggleAccount = (account: any, platform: string) => {
     const accountKey = `${platform}-${account.id}`;
@@ -274,9 +277,25 @@ export default function VideoPage() {
     const file = e.target.files?.[0];
     if (!file || !video) return;
     setSourceUploading(true);
+    setSourceCompressProgress(0);
     try {
+      let toUpload = file;
+      if (file.size > COMPRESSION_THRESHOLD_BYTES) {
+        setSourcePhase("compressing");
+        try {
+          toUpload = await compressVideo(file, {
+            onProgress: (frac) => setSourceCompressProgress(Math.round(frac * 100)),
+          });
+        } catch (err: any) {
+          alert(`Couldn't compress in browser: ${err?.message || err}. Try a smaller file.`);
+          setSourceUploading(false);
+          setSourcePhase("idle");
+          return;
+        }
+      }
+      setSourcePhase("uploading");
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", toUpload);
       await axios.post(`${API_URL}/videos/${video.id}/upload-source`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -286,6 +305,7 @@ export default function VideoPage() {
       alert(err.response?.data?.detail || "Upload failed");
     } finally {
       setSourceUploading(false);
+      setSourcePhase("idle");
     }
   };
 
@@ -542,7 +562,9 @@ export default function VideoPage() {
                     disabled={sourceUploading}
                     onClick={() => document.getElementById("source-upload")?.click()}
                   >
-                    {sourceUploading ? (
+                    {sourcePhase === "compressing" ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Compressing {sourceCompressProgress}%</>
+                    ) : sourcePhase === "uploading" ? (
                       <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
                     ) : (
                       "Upload Video File"
