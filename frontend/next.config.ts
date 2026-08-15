@@ -5,10 +5,12 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Pin Turbopack to the frontend/ dir so it doesn't pick up a stray lockfile
-  // one directory up and try to resolve node_modules from there.
   turbopack: {
     root: path.resolve(__dirname),
+    resolveAlias: {
+      "@ffmpeg/ffmpeg": path.resolve(__dirname, "node_modules/@ffmpeg/ffmpeg/dist/esm/index.js"),
+      "@ffmpeg/util": path.resolve(__dirname, "node_modules/@ffmpeg/util/dist/esm/index.js"),
+    },
   },
   async headers() {
     // ffmpeg.wasm requires SharedArrayBuffer, which needs cross-origin isolation.
