@@ -224,6 +224,7 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
             return
 
         suggestion.status = "rendering"
+        suggestion.error_message = None
         db.commit()
 
         quality_map = {
@@ -242,6 +243,8 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
                 target_height=target_height,
             )
         else:
+            # download_video_segment now returns the full video file (see
+            # note in downloader.py) — trim to the requested window here.
             segment_path = downloader.download_video_segment(
                 url=video.original_url,
                 start_time=suggestion.start_time,
@@ -249,8 +252,8 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
             )
             result = editor.create_vertical_clip(
                 source_path=segment_path,
-                start_time="0",
-                end_time=str(suggestion.end_time - suggestion.start_time),
+                start_time=str(suggestion.start_time),
+                end_time=str(suggestion.end_time),
                 target_height=target_height
             )
 
@@ -278,6 +281,7 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
         print(f"Render failed: {e}")
         if suggestion:
             suggestion.status = "failed"
+            suggestion.error_message = str(e)[:2000]
             db.commit()
     finally:
         db.close()

@@ -21,6 +21,11 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/app/data
+      # No YouTube cookies mount locally: authenticated requests trigger
+      # YouTube's SABR path which only serves storyboards + requires a PO
+      # token for actual media, causing "Requested format is not available"
+      # on every video. Unauthenticated requests from a residential IP
+      # return the full ladder of downloadable formats.
     ports:
       - "8001:8000"
     environment:

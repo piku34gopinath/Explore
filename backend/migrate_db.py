@@ -47,6 +47,14 @@ async def migrate():
     except Exception as e:
         print(f"clip_suggestions columns might already exist: {e}")
 
+    # Add error_message to clip_suggestions (surfaces render failure reason to UI)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE clip_suggestions ADD COLUMN error_message VARCHAR;"))
+            print("Added error_message to clip_suggestions")
+    except Exception as e:
+        print(f"clip_suggestions.error_message might already exist: {e}")
+
     # Add is_primary
     try:
         async with engine.begin() as conn:

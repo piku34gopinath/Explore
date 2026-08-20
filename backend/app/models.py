@@ -83,7 +83,8 @@ class ClipSuggestion(Base):
     hook_description = Column(Text)  # What happens in first 3 seconds
     reasoning = Column(Text)  # Why this clip is viral-worthy
     tags = Column(String, nullable=True)  # Viral hashtags (comma-separated, no # symbols)
-    status = Column(String, default="suggested")  # "suggested", "approved", "rejected", "generated"
+    status = Column(String, default="suggested")  # "suggested", "approved", "rejected", "generated", "failed"
+    error_message = Column(String, nullable=True)
     platform_preset = Column(String, default="tiktok")  # "tiktok", "youtube_shorts", "instagram_reels"
     suggested_quality = Column(String, nullable=True) # "4k", "1080p", "720p"
     title = Column(String, nullable=True)

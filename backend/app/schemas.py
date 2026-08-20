@@ -51,6 +51,7 @@ class ClipSuggestion(ClipSuggestionBase):
     id: int
     video_source_id: int
     created_at: datetime
+    error_message: Optional[str] = None
     
     class Config:
         from_attributes = True

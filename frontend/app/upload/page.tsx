@@ -198,9 +198,10 @@ export default function UploadPage() {
                   {video.clips.map((clip) => (
                     <Card key={clip.id} className="overflow-hidden bg-card/50 backdrop-blur border-white/5 hover:border-violet-500/50 transition-all group">
                       <div className="relative aspect-[9/16] bg-black">
-                        <video 
+                        <video
                           id={`video-${clip.id}`}
-                          src={`${API_URL}/static/${clip.file_path.split('/').pop()}`}
+                          src={`${API_URL}/media/${clip.file_path.split('/').pop()}`}
+                          preload="metadata"
                           className="w-full h-full object-contain"
                           onEnded={() => setPlayingClip(null)}
                           onClick={() => handlePlayPause(clip.id)}

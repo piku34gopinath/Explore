@@ -39,8 +39,22 @@ from fastapi import Request
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
 # In production, use a secure random string from env
-SECRET_KEY = os.getenv("SESSION_SECRET", "super-secret-dev-key") 
+SECRET_KEY = os.getenv("SESSION_SECRET", "super-secret-dev-key")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="none", https_only=True)
+
+
+@app.middleware("http")
+async def add_cross_origin_resource_policy(request: Request, call_next):
+    """
+    The frontend sets `Cross-Origin-Embedder-Policy: require-corp` (needed so
+    ffmpeg.wasm can use SharedArrayBuffer). That makes the page cross-origin
+    isolated, which blocks cross-origin subresources — including <video>/<img>
+    served from this backend — unless they carry a CORP header. Tag every
+    response so clips and thumbnails load in the isolated page.
+    """
+    response = await call_next(request)
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return response
 from . import models, schemas, crud, database
 from .database import engine, get_db, AsyncSessionLocal
 from sqlalchemy.future import select
@@ -133,6 +147,17 @@ async def integrity_error_handler(request, exc):
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+
+    # create_all won't add columns to pre-existing tables; add the render
+    # failure-reason column idempotently so the UI can show why a clip failed.
+    from sqlalchemy import text as _sql_text
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(_sql_text(
+                "ALTER TABLE clip_suggestions ADD COLUMN IF NOT EXISTS error_message VARCHAR"
+            ))
+    except Exception as e:
+        print(f"clip_suggestions.error_message migration skipped: {e}")
     
     # Seed system_configs from env ONLY when a value is not already stored,
     # so that values saved via the UI are not overwritten on restart.
@@ -270,18 +295,102 @@ async def get_user_videos(user_id: int, db: AsyncSession = Depends(get_db)):
     videos = await crud.get_user_videos(db, user_id=user_id)
     return videos
 
+@app.get("/media/{filename}")
+async def stream_clip(filename: str, request: Request):
+    """
+    Range-aware video streaming endpoint.
+
+    Starlette 0.36's FileResponse (pinned by FastAPI 0.110) does NOT honor
+    HTTP Range requests, so <video> elements can't read duration or seek —
+    the player shows 0:00. This endpoint implements 206 Partial Content so
+    browsers get proper seeking and duration.
+    """
+    from fastapi.responses import StreamingResponse, Response
+    import os
+    import re
+
+    # Prevent path traversal; only serve bare filenames from the clips dir.
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = f"/app/data/clips/{filename}"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_size = os.path.getsize(file_path)
+    range_header = request.headers.get("range")
+
+    ext = os.path.splitext(filename)[1].lower()
+    media_type = "video/mp4" if ext == ".mp4" else "application/octet-stream"
+
+    if range_header is None:
+        # No range: return the whole file but still advertise range support.
+        def full_iter():
+            with open(file_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    yield chunk
+
+        return StreamingResponse(
+            full_iter(),
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            },
+        )
+
+    m = re.match(r"bytes=(\d*)-(\d*)", range_header.strip())
+    if not m:
+        raise HTTPException(status_code=416, detail="Invalid Range header")
+
+    start_s, end_s = m.group(1), m.group(2)
+    start = int(start_s) if start_s else 0
+    end = int(end_s) if end_s else file_size - 1
+    end = min(end, file_size - 1)
+
+    if start > end or start >= file_size:
+        return Response(
+            status_code=416,
+            headers={"Content-Range": f"bytes */{file_size}"},
+        )
+
+    length = end - start + 1
+
+    def range_iter():
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    return StreamingResponse(
+        range_iter(),
+        status_code=206,
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(length),
+        },
+    )
+
+
 @app.get("/download/{filename}")
 async def download_clip(filename: str):
     """Download endpoint that forces file download with proper headers"""
     from fastapi.responses import FileResponse
     import os
-    
+
     file_path = f"/app/data/clips/{filename}"
-    
+
     # Check if file exists
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     # Return with Content-Disposition header to force download
     return FileResponse(
         path=file_path,

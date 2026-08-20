@@ -54,6 +54,7 @@ interface ClipSuggestion {
   suggested_quality?: string;
   title?: string;
   tags?: string;
+  error_message?: string | null;
 }
 
 interface Video {
@@ -323,6 +324,8 @@ export default function VideoPage() {
   const hasLocalFile = !!video?.original_url?.startsWith("file://");
   const hasFailedSuggestions = !!video?.suggestions?.some(s => s.status === "failed");
   // Only prompt for a manual upload as a fallback, after a link-based render fails.
+  // Locally yt-dlp works, so Generate stays enabled first-try; on Render the
+  // 403 triggers the failure and this panel appears with a Retry.
   const showSourceUpload = isYouTubeUrl && !hasLocalFile && !sourceUploaded && hasFailedSuggestions;
 
   const downloadClip = async (clipPath: string, title: string) => {
@@ -522,13 +525,57 @@ export default function VideoPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Generation Failed</AlertTitle>
-          <AlertDescription className="mt-2">
+          <AlertDescription className="mt-2 space-y-3">
             <p className="font-medium mb-1">Reason: {video.error_message || "Unknown error occurred"}</p>
             <p className="text-sm opacity-90">
-              {video.error_message?.toLowerCase().includes("quota") ? 
-                "Tip: Check your AI provider's billing dashboard or verify your API key in Settings." :
-                "Tip: Try using a different AI model in Settings or check if the video has clear speech."}
+              {(() => {
+                const msg = video.error_message?.toLowerCase() || "";
+                if (msg.includes("sign in to confirm") || msg.includes("bot") || msg.includes("403")) {
+                  return "Tip: YouTube is blocking this video from being pulled by our server (bot / age / region check). Upload the source file manually below to continue.";
+                }
+                if (msg.includes("quota")) {
+                  return "Tip: Check your AI provider's billing dashboard or verify your API key in Settings.";
+                }
+                return "Tip: Try using a different AI model in Settings or check if the video has clear speech.";
+              })()}
             </p>
+
+            {isYouTubeUrl && !hasLocalFile && !sourceUploaded && (
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={sourceUploading}
+                  onClick={() => document.getElementById("source-upload-failed")?.click()}
+                >
+                  {sourcePhase === "compressing" ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Compressing {sourceCompressProgress}%</>
+                  ) : sourcePhase === "uploading" ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading...</>
+                  ) : (
+                    "Upload Video File"
+                  )}
+                </Button>
+                <input
+                  type="file"
+                  id="source-upload-failed"
+                  className="hidden"
+                  accept="video/*"
+                  onChange={handleSourceUpload}
+                />
+                <span className="text-xs opacity-80">MP4, MOV, MKV, WebM</span>
+              </div>
+            )}
+
+            {(hasLocalFile || sourceUploaded) && (
+              <div className="flex items-center gap-3 pt-2">
+                <Button size="sm" onClick={regenerateSuggestions}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry analysis
+                </Button>
+                <span className="text-xs opacity-80">Source file ready — re-run AI analysis on it.</span>
+              </div>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -682,9 +729,16 @@ export default function VideoPage() {
                     )}
                     {suggestion.status === 'failed' && (
                       <div className="space-y-2">
-                        <div className="flex items-center justify-center w-full py-2 text-sm text-destructive font-medium bg-destructive/5 rounded-lg border border-destructive/20">
-                          <AlertCircle className="h-4 w-4 mr-2" />
-                          Generation Failed
+                        <div className="w-full py-2 px-3 text-sm text-destructive bg-destructive/5 rounded-lg border border-destructive/20">
+                          <div className="flex items-center font-medium">
+                            <AlertCircle className="h-4 w-4 mr-2 shrink-0" />
+                            Generation Failed
+                          </div>
+                          {suggestion.error_message && (
+                            <p className="mt-1 pl-6 text-xs text-destructive/80 break-words line-clamp-4">
+                              {suggestion.error_message}
+                            </p>
+                          )}
                         </div>
                         {hasLocalFile && (
                           <Button
@@ -746,9 +800,10 @@ export default function VideoPage() {
             {video.clips.map((clip) => (
               <Card key={clip.id} className="overflow-hidden border-none shadow-lg bg-card/50 backdrop-blur-sm group">
                 <div className="aspect-[9/16] bg-black relative">
-                  <video 
-                    src={`${API_URL}/static/${clip.file_path.split('/').pop()}`} 
-                    controls 
+                  <video
+                    src={`${API_URL}/media/${clip.file_path.split('/').pop()}`}
+                    controls
+                    preload="metadata"
                     className="w-full h-full object-contain"
                     poster={video.thumbnail_url || undefined}
                   />
