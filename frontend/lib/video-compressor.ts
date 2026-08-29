@@ -1,4 +1,10 @@
-export const COMPRESSION_THRESHOLD_BYTES = 80 * 1024 * 1024;
+// Files below this upload directly (raw, no browser re-encode) so HD/4K sources
+// keep full quality — the backend streams uploads to disk in chunks, so large
+// files are memory-safe. Only genuinely huge files fall back to in-browser
+// compression (which preserves resolution up to 4K). Override per-deployment with
+// NEXT_PUBLIC_UPLOAD_COMPRESS_MB (e.g. lower it if your host rejects big uploads).
+const _THRESHOLD_MB = Number(process.env.NEXT_PUBLIC_UPLOAD_COMPRESS_MB) || 2048;
+export const COMPRESSION_THRESHOLD_BYTES = _THRESHOLD_MB * 1024 * 1024;
 
 const CDN = "https://unpkg.com";
 const FFMPEG_VERSION = "0.12.15";
@@ -68,7 +74,10 @@ export interface CompressOptions {
 
 export async function compressVideo(
   file: File,
-  { onProgress, targetHeight = 720, crf = 28 }: CompressOptions = {},
+  // Preserve resolution up to 4K so HD/4K uploads keep their quality — we only
+  // shrink via CRF, and `scale=-2:'min(2160,ih)'` (below) never upscales, so a
+  // 1080p source stays 1080p and a 4K source stays 4K. Only >4K is downscaled.
+  { onProgress, targetHeight = 2160, crf = 21 }: CompressOptions = {},
 ): Promise<File> {
   if (typeof SharedArrayBuffer === "undefined") {
     throw new Error(
@@ -92,13 +101,15 @@ export async function compressVideo(
 
   await ffmpeg.exec([
     "-i", inputName,
-    "-vf", `scale=-2:${targetHeight}`,
+    // min(targetHeight, ih) so we only downscale sources taller than 4K and never
+    // upscale — preserving native 1080p/4K resolution.
+    "-vf", `scale=-2:'min(${targetHeight},ih)'`,
     "-c:v", "libx264",
     "-preset", "veryfast",
     "-crf", String(crf),
     "-pix_fmt", "yuv420p",
     "-c:a", "aac",
-    "-b:a", "96k",
+    "-b:a", "128k",
     "-movflags", "+faststart",
     outputName,
   ]);

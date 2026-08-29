@@ -98,17 +98,27 @@ def _shift_srt(srt: str, offset_seconds: float, index_base: int) -> tuple[str, i
     return "\n\n".join(out_blocks) + ("\n" if out_blocks else ""), idx
 
 
-def _whisper_srt(path: str) -> str:
+def _whisper_srt(path: str, whisper_client) -> str:
     with open(path, "rb") as f:
-        return client.audio.transcriptions.create(
+        return whisper_client.audio.transcriptions.create(
             model="whisper-1",
             file=f,
             response_format="srt",
         )
 
 
-def transcribe_audio(file_path: str) -> str:
-    """Transcribe a video/audio file via Whisper, chunking if needed to stay under 25 MB."""
+def transcribe_audio(file_path: str, api_key: str | None = None) -> str:
+    """Transcribe a video/audio file via Whisper, chunking if needed to stay under 25 MB.
+
+    Whisper is OpenAI-only, so it needs an OpenAI key. Prefer the caller-supplied
+    `api_key` (e.g. the user's key from their AI config) and fall back to the
+    process-level OPENAI_API_KEY env var. Without a key, transcription fails and
+    burned captions won't be available."""
+    resolved_key = api_key or os.getenv("OPENAI_API_KEY")
+    if not resolved_key:
+        print("[TRANSCRIBER] No OpenAI API key (caller or OPENAI_API_KEY env) — "
+              "Whisper cannot run, captions will be unavailable.")
+    whisper_client = OpenAI(api_key=resolved_key) if resolved_key else client
     tmpdir = tempfile.mkdtemp(prefix="whisper_")
     try:
         # 1. Extract compressed audio — this alone brings most hour-long videos under 25 MB.
@@ -130,7 +140,7 @@ def transcribe_audio(file_path: str) -> str:
         next_index = 1
         for seg_path, offset in segments:
             try:
-                srt = _whisper_srt(seg_path)
+                srt = _whisper_srt(seg_path, whisper_client)
             except Exception as e:
                 print(f"Whisper chunk failed at offset {offset}s: {e}")
                 continue

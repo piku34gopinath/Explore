@@ -40,6 +40,9 @@ class VideoSource(Base):
     progress = Column(Integer, default=0) # Percentage 0-100
     ai_model = Column(String, nullable=True) # The model used for this video
     error_message = Column(String, nullable=True)
+    # Full SRT transcript with timings — reused by the render step to burn
+    # voice-synced captions into clips.
+    transcript = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

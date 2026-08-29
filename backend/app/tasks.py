@@ -129,7 +129,11 @@ def process_video_task(video_id: int, video_url: str):
             db.commit()
 
             if _is_local_file(video_url):
-                transcript = transcriber.transcribe_audio(_local_path(video_url)) or ""
+                # Whisper needs an OpenAI key. Use the user's key when their AI
+                # provider is OpenAI, otherwise fall back to the env var. Without
+                # this, transcription silently fails and captions never render.
+                openai_key = (api_key if provider == "openai" else None) or os.getenv("OPENAI_API_KEY")
+                transcript = transcriber.transcribe_audio(_local_path(video_url), api_key=openai_key) or ""
             elif yt_creds:
                 transcript = downloader.get_video_transcript_via_api(video_url, yt_creds)
                 if not transcript:
@@ -139,6 +143,8 @@ def process_video_task(video_id: int, video_url: str):
             if not transcript or len(transcript) < 100:
                 transcript = metadata.get('description', '')
 
+            # Persist the transcript so render can burn voice-synced captions.
+            video.transcript = transcript
             video.progress = 50
             db.commit()
 
@@ -208,7 +214,17 @@ def process_video_task(video_id: int, video_url: str):
         db.close()
 
 
-def render_clip_task(suggestion_id: int, quality: str = "1080p"):
+_VIRAL_ANGLE_EMOJI = {
+    "funny": "😂",
+    "emotional": "❤️",
+    "surprising": "😱",
+    "inspirational": "✨",
+    "educational": "🧠",
+    "satisfying": "😌",
+}
+
+
+def render_clip_task(suggestion_id: int, quality: str = "1080p", render_opts: dict | None = None):
     """
     Task to render a specific clip after user approval.
     """
@@ -234,6 +250,21 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
         }
         target_height = quality_map.get(quality.lower(), 1080)
 
+        opts = render_opts or {}
+        overlay_opts = {
+            "caption_text": (suggestion.title or suggestion.hook_description or "") if opts.get("captions_enabled") else None,
+            "caption_language": opts.get("caption_language", "en"),
+            "caption_style": opts.get("caption_style", "classic"),
+            # Voice-synced SRT — when present, editor uses this instead of the
+            # static title so captions follow what's actually being said.
+            "transcript_srt": video.transcript if opts.get("captions_enabled") else None,
+            "clip_start": float(suggestion.start_time or 0),
+            "clip_end": float(suggestion.end_time or 0),
+            "emoji_text": _VIRAL_ANGLE_EMOJI.get((suggestion.viral_angle or "").lower(), "✨") if opts.get("emojis_enabled") else None,
+            "emoji_style": opts.get("emoji_style", "standard"),
+            "emoji_meme_mode": opts.get("emoji_meme_mode", False),
+        }
+
         if _is_local_file(video.original_url):
             segment_path = None
             result = editor.create_vertical_clip(
@@ -241,6 +272,7 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
                 start_time=str(suggestion.start_time),
                 end_time=str(suggestion.end_time),
                 target_height=target_height,
+                overlay_opts=overlay_opts,
             )
         else:
             # download_video_segment now returns the full video file (see
@@ -254,7 +286,8 @@ def render_clip_task(suggestion_id: int, quality: str = "1080p"):
                 source_path=segment_path,
                 start_time=str(suggestion.start_time),
                 end_time=str(suggestion.end_time),
-                target_height=target_height
+                target_height=target_height,
+                overlay_opts=overlay_opts,
             )
 
         new_clip = GeneratedClip(

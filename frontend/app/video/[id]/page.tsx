@@ -66,9 +66,20 @@ interface Video {
   error_message?: string;
   ai_model?: string;
   thumbnail_url?: string;
+  source_width?: number;
+  source_height?: number;
   clips: Clip[];
   suggestions: ClipSuggestion[];
 }
+
+// Target output heights per quality preset (must match the backend quality_map
+// in tasks.py). The renderer never upscales past the source's height, so a
+// preset taller than the source can't actually improve quality.
+const QUALITY_TARGET_HEIGHT: Record<string, number> = {
+  "4k": 3840,
+  "1080p": 1920,
+  "720p": 1280,
+};
 
 const getViralAngleEmoji = (angle: string) => {
   const emojiMap: Record<string, string> = {
@@ -117,6 +128,79 @@ export default function VideoPage() {
   const [sourceUploaded, setSourceUploaded] = useState(false);
   const [sourceCompressProgress, setSourceCompressProgress] = useState(0);
   const [sourcePhase, setSourcePhase] = useState<"idle" | "compressing" | "uploading">("idle");
+
+  // Style wizard state (captions + emojis)
+  type CaptionStyle = "classic" | "kinetic" | "minimalist" | "bold_highlight" | "story_vertical";
+  type EmojiStyle = "standard" | "animated" | "meme_reactions";
+  type StylePrefs = {
+    captions: { enabled: boolean; language?: "en" | "hi"; style?: CaptionStyle };
+    emojis: { enabled: boolean; style?: EmojiStyle; memeMode?: boolean };
+  };
+  const [styleWizardOpen, setStyleWizardOpen] = useState(false);
+  const [styleWizardSuggestionId, setStyleWizardSuggestionId] = useState<number | null>(null);
+  const [styleWizardStep, setStyleWizardStep] = useState<number>(0);
+  const [stylePrefsDraft, setStylePrefsDraft] = useState<StylePrefs>({
+    captions: { enabled: false },
+    emojis: { enabled: false },
+  });
+
+  const openStyleWizard = (suggestionId: number) => {
+    setStyleWizardSuggestionId(suggestionId);
+    setStyleWizardStep(0);
+    setStylePrefsDraft({ captions: { enabled: false }, emojis: { enabled: false } });
+    setStyleWizardOpen(true);
+  };
+
+  const closeStyleWizard = () => {
+    setStyleWizardOpen(false);
+    setStyleWizardSuggestionId(null);
+    setStyleWizardStep(0);
+  };
+
+  const captionStyleLabel: Record<CaptionStyle, string> = {
+    classic: "Classic Subtitle",
+    kinetic: "Dynamic / Kinetic Text",
+    minimalist: "Minimalist Lower Third",
+    bold_highlight: "Bold Highlight",
+    story_vertical: "Story-style Vertical",
+  };
+  const emojiStyleLabel: Record<EmojiStyle, string> = {
+    standard: "Standard Emojis",
+    animated: "Animated Emojis",
+    meme_reactions: "Meme-style Reactions",
+  };
+
+  // Ordered steps in the wizard, computed from current draft
+  const wizardSteps = (() => {
+    const steps: string[] = ["captions_toggle"];
+    if (stylePrefsDraft.captions.enabled) {
+      steps.push("caption_language", "caption_style");
+    }
+    steps.push("emoji_toggle");
+    if (stylePrefsDraft.emojis.enabled) {
+      steps.push("emoji_style");
+    }
+    steps.push("summary");
+    return steps;
+  })();
+  const currentWizardStep = wizardSteps[Math.min(styleWizardStep, wizardSteps.length - 1)];
+  const canGoNext = (() => {
+    if (currentWizardStep === "caption_language") return !!stylePrefsDraft.captions.language;
+    if (currentWizardStep === "caption_style") return !!stylePrefsDraft.captions.style;
+    if (currentWizardStep === "emoji_style") return !!stylePrefsDraft.emojis.style || !!stylePrefsDraft.emojis.memeMode;
+    return true;
+  })();
+
+  const goNextWizard = () => setStyleWizardStep((s) => Math.min(s + 1, wizardSteps.length - 1));
+  const goBackWizard = () => setStyleWizardStep((s) => Math.max(s - 1, 0));
+
+  const finalizeGenerate = async () => {
+    if (styleWizardSuggestionId == null) return;
+    const suggestionId = styleWizardSuggestionId;
+    const prefs = stylePrefsDraft;
+    closeStyleWizard();
+    await approveSuggestion(suggestionId, prefs);
+  };
 
   const toggleAccount = (account: any, platform: string) => {
     const accountKey = `${platform}-${account.id}`;
@@ -203,10 +287,21 @@ export default function VideoPage() {
     }
   };
 
-  const approveSuggestion = async (suggestionId: number) => {
+  const approveSuggestion = async (suggestionId: number, stylePrefs?: StylePrefs) => {
     const quality = selectedQualities[suggestionId] || "1080p";
+    const params = new URLSearchParams({ quality });
+    if (stylePrefs?.captions.enabled) {
+      params.set("captions", "1");
+      if (stylePrefs.captions.language) params.set("caption_language", stylePrefs.captions.language);
+      if (stylePrefs.captions.style) params.set("caption_style", stylePrefs.captions.style);
+    }
+    if (stylePrefs?.emojis.enabled) {
+      params.set("emojis", "1");
+      if (stylePrefs.emojis.style) params.set("emoji_style", stylePrefs.emojis.style);
+      if (stylePrefs.emojis.memeMode) params.set("emoji_meme_mode", "1");
+    }
     try {
-      await axios.post(`${API_URL}/videos/${videoId}/suggestions/${suggestionId}/approve?quality=${quality}`);
+      await axios.post(`${API_URL}/videos/${videoId}/suggestions/${suggestionId}/approve?${params.toString()}`);
       fetchVideo(); // Refresh to show updated status
     } catch (error) {
       console.error("Error approving suggestion:", error);
@@ -299,6 +394,9 @@ export default function VideoPage() {
       formData.append("file", toUpload);
       await axios.post(`${API_URL}/videos/${video.id}/upload-source`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
+        timeout: 0, // large HD/4K uploads must not time out
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       });
       setSourceUploaded(true);
       fetchVideo();
@@ -684,17 +782,43 @@ export default function VideoPage() {
                               <SelectValue placeholder="Select quality" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="4k">4K Ultra HD</SelectItem>
-                              <SelectItem value="1080p">1080p Full HD</SelectItem>
-                              <SelectItem value="720p">720p HD</SelectItem>
+                              {(() => {
+                                const srcH = video?.source_height;
+                                const presets = [
+                                  { value: "4k", label: "4K Ultra HD" },
+                                  { value: "1080p", label: "1080p Full HD" },
+                                  { value: "720p", label: "720p HD" },
+                                ];
+                                const anyAchievable = !srcH || presets.some(p => QUALITY_TARGET_HEIGHT[p.value] <= srcH);
+                                // Source too low for even 720p: offer a single honest
+                                // "Original" option (renders at the source's native size).
+                                if (srcH && !anyAchievable) {
+                                  return (
+                                    <SelectItem value="720p">Original — {srcH}p (max for this source)</SelectItem>
+                                  );
+                                }
+                                return presets.map((opt) => {
+                                  const capped = !!srcH && QUALITY_TARGET_HEIGHT[opt.value] > srcH;
+                                  return (
+                                    <SelectItem key={opt.value} value={opt.value} disabled={capped}>
+                                      {opt.label}{capped ? " — source too low" : ""}
+                                    </SelectItem>
+                                  );
+                                });
+                              })()}
                             </SelectContent>
                           </Select>
                         </div>
+                        {video?.source_height ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Source is {video.source_height}p — clips render at {video.source_height}p; higher presets can’t add detail that isn’t in the file.
+                          </p>
+                        ) : null}
                         <div className="flex gap-2">
                           <Button
                             className="flex-1"
                             size="sm"
-                            onClick={() => approveSuggestion(suggestion.id)}
+                            onClick={() => openStyleWizard(suggestion.id)}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
                             Generate
@@ -1259,6 +1383,161 @@ export default function VideoPage() {
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Style Wizard: Captions + Emojis */}
+      <Dialog open={styleWizardOpen} onOpenChange={(o) => { if (!o) closeStyleWizard(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Customize Your Clip</DialogTitle>
+            <DialogDescription>
+              Step {Math.min(styleWizardStep + 1, wizardSteps.length)} of {wizardSteps.length}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2 min-h-[220px]">
+            {currentWizardStep === "captions_toggle" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Do you want to add captions to your video?</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={stylePrefsDraft.captions.enabled ? "default" : "outline"}
+                    onClick={() => setStylePrefsDraft(p => ({ ...p, captions: { enabled: true } }))}
+                  >Yes</Button>
+                  <Button
+                    variant={!stylePrefsDraft.captions.enabled ? "default" : "outline"}
+                    onClick={() => setStylePrefsDraft(p => ({ ...p, captions: { enabled: false } }))}
+                  >No</Button>
+                </div>
+              </div>
+            )}
+
+            {currentWizardStep === "caption_language" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Choose caption language</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { key: "en" as const, label: "English" },
+                    { key: "hi" as const, label: "Hindi" },
+                  ].map(opt => (
+                    <Button
+                      key={opt.key}
+                      variant={stylePrefsDraft.captions.language === opt.key ? "default" : "outline"}
+                      onClick={() => setStylePrefsDraft(p => ({ ...p, captions: { ...p.captions, language: opt.key } }))}
+                    >{opt.label}</Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentWizardStep === "caption_style" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Pick a caption style</h3>
+                <p className="text-xs text-muted-foreground">Renders adapt for horizontal (YouTube) and vertical (Reels/Shorts) aspect ratios.</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {(Object.keys(captionStyleLabel) as CaptionStyle[]).map(k => (
+                    <Button
+                      key={k}
+                      variant={stylePrefsDraft.captions.style === k ? "default" : "outline"}
+                      className="justify-start"
+                      onClick={() => setStylePrefsDraft(p => ({ ...p, captions: { ...p.captions, style: k } }))}
+                    >{captionStyleLabel[k]}</Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {currentWizardStep === "emoji_toggle" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Do you want to add emojis?</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant={stylePrefsDraft.emojis.enabled ? "default" : "outline"}
+                    onClick={() => setStylePrefsDraft(p => ({ ...p, emojis: { enabled: true } }))}
+                  >Yes</Button>
+                  <Button
+                    variant={!stylePrefsDraft.emojis.enabled ? "default" : "outline"}
+                    onClick={() => setStylePrefsDraft(p => ({ ...p, emojis: { enabled: false } }))}
+                  >No</Button>
+                </div>
+              </div>
+            )}
+
+            {currentWizardStep === "emoji_style" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Pick an emoji style</h3>
+                <div className="grid grid-cols-1 gap-2">
+                  {(Object.keys(emojiStyleLabel) as EmojiStyle[]).map(k => (
+                    <Button
+                      key={k}
+                      variant={stylePrefsDraft.emojis.style === k ? "default" : "outline"}
+                      className="justify-start"
+                      onClick={() => setStylePrefsDraft(p => ({ ...p, emojis: { ...p.emojis, style: k } }))}
+                    >{emojiStyleLabel[k]}</Button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <div className="text-sm font-medium">Meme Style Overlay</div>
+                    <div className="text-xs text-muted-foreground">Apply popular meme templates and text overlays.</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={stylePrefsDraft.emojis.memeMode ? "default" : "outline"}
+                    onClick={() => setStylePrefsDraft(p => ({ ...p, emojis: { ...p.emojis, memeMode: !p.emojis.memeMode } }))}
+                  >{stylePrefsDraft.emojis.memeMode ? "On" : "Off"}</Button>
+                </div>
+              </div>
+            )}
+
+            {currentWizardStep === "summary" && (
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold">Review your choices</h3>
+                <div className="rounded-lg border p-4 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Captions</span>
+                    <span className="font-medium">
+                      {stylePrefsDraft.captions.enabled
+                        ? `${stylePrefsDraft.captions.language === "hi" ? "Hindi" : "English"} · ${stylePrefsDraft.captions.style ? captionStyleLabel[stylePrefsDraft.captions.style] : "—"}`
+                        : "Off"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Emojis</span>
+                    <span className="font-medium">
+                      {stylePrefsDraft.emojis.enabled
+                        ? `${stylePrefsDraft.emojis.style ? emojiStyleLabel[stylePrefsDraft.emojis.style] : "—"}${stylePrefsDraft.emojis.memeMode ? " · Meme mode" : ""}`
+                        : "Off"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Quality</span>
+                    <span className="font-medium">
+                      {styleWizardSuggestionId != null ? (selectedQualities[styleWizardSuggestionId] || "1080p") : "1080p"}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Use Back to edit any choice before rendering.</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex sm:justify-between gap-2">
+            <div>
+              <Button variant="ghost" onClick={closeStyleWizard}>Cancel</Button>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={goBackWizard} disabled={styleWizardStep === 0}>Back</Button>
+              {currentWizardStep === "summary" ? (
+                <Button onClick={finalizeGenerate}>
+                  <CheckCircle className="h-4 w-4 mr-1" /> Generate
+                </Button>
+              ) : (
+                <Button onClick={goNextWizard} disabled={!canGoNext}>Next</Button>
+              )}
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -40,11 +40,13 @@ export default function Home() {
           return;
         }
 
-        // Files above the server's request limit need to be compressed in the
-        // browser first — otherwise Render's reverse proxy rejects them.
+        // HD/4K files upload directly (raw) so quality is preserved end-to-end.
+        // Only files above the threshold fall back to in-browser compression,
+        // which keeps resolution up to 4K and just shrinks the bitrate.
         let toUpload = file;
         if (file.size > COMPRESSION_THRESHOLD_BYTES) {
           setPhase("compressing");
+          const limitMb = Math.round(COMPRESSION_THRESHOLD_BYTES / (1024 * 1024));
           try {
             toUpload = await compressVideo(file, {
               onProgress: (frac) => setCompressProgress(Math.round(frac * 100)),
@@ -53,7 +55,7 @@ export default function Home() {
             console.error("Compression failed:", err);
             alert(
               `Couldn't compress the file in-browser: ${err?.message || err}. ` +
-              `Try a smaller file (< 80 MB) or a shorter clip.`,
+              `Try a shorter clip or a file under ${limitMb} MB.`,
             );
             setLoading(false);
             setPhase("idle");
@@ -66,6 +68,9 @@ export default function Home() {
         form.append("file", toUpload);
         response = await axios.post(`${API_URL}/videos/upload`, form, {
           headers: { "Content-Type": "multipart/form-data" },
+          timeout: 0, // large HD/4K uploads must not time out
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
           onUploadProgress: (evt) => {
             if (evt.total) setUploadProgress(Math.round((evt.loaded / evt.total) * 100));
           },
@@ -199,7 +204,12 @@ export default function Home() {
             </form>
             {mode === "file" && file && file.size > COMPRESSION_THRESHOLD_BYTES && phase === "idle" && (
               <p className="text-xs text-amber-400/80 text-center">
-                Large file ({(file.size / (1024 * 1024)).toFixed(0)} MB) — we&apos;ll compress it in your browser first (may take a few minutes). Keep this tab open.
+                Very large file ({(file.size / (1024 * 1024)).toFixed(0)} MB) — we&apos;ll compress it in your browser first (resolution preserved up to 4K; may take a few minutes). Keep this tab open.
+              </p>
+            )}
+            {mode === "file" && file && file.size <= COMPRESSION_THRESHOLD_BYTES && file.size > 50 * 1024 * 1024 && phase === "idle" && (
+              <p className="text-xs text-emerald-400/80 text-center">
+                Uploading at full quality ({(file.size / (1024 * 1024)).toFixed(0)} MB) — no re-encoding. A large upload may take a little while.
               </p>
             )}
             {phase === "compressing" && (

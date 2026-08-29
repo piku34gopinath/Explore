@@ -158,6 +158,14 @@ async def startup():
             ))
     except Exception as e:
         print(f"clip_suggestions.error_message migration skipped: {e}")
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(_sql_text(
+                "ALTER TABLE video_sources ADD COLUMN IF NOT EXISTS transcript TEXT"
+            ))
+    except Exception as e:
+        print(f"video_sources.transcript migration skipped: {e}")
     
     # Seed system_configs from env ONLY when a value is not already stored,
     # so that values saved via the UI are not overwritten on restart.
@@ -403,7 +411,19 @@ async def download_clip(filename: str):
 
 # Clip Suggestion Endpoints
 @app.post("/videos/{video_id}/suggestions/{suggestion_id}/approve")
-async def approve_suggestion(video_id: int, suggestion_id: int, background_tasks: BackgroundTasks, quality: str = "1080p", db: AsyncSession = Depends(database.get_db)):
+async def approve_suggestion(
+    video_id: int,
+    suggestion_id: int,
+    background_tasks: BackgroundTasks,
+    quality: str = "1080p",
+    captions: int = 0,
+    caption_language: str = "en",
+    caption_style: str = "classic",
+    emojis: int = 0,
+    emoji_style: str = "standard",
+    emoji_meme_mode: int = 0,
+    db: AsyncSession = Depends(database.get_db),
+):
     """Approve a clip suggestion and trigger rendering with selected quality"""
     from sqlalchemy import update
 
@@ -414,7 +434,15 @@ async def approve_suggestion(video_id: int, suggestion_id: int, background_tasks
     )
     await db.commit()
 
-    background_tasks.add_task(tasks.render_clip_task, suggestion_id, quality)
+    render_opts = {
+        "captions_enabled": bool(captions),
+        "caption_language": caption_language,
+        "caption_style": caption_style,
+        "emojis_enabled": bool(emojis),
+        "emoji_style": emoji_style,
+        "emoji_meme_mode": bool(emoji_meme_mode),
+    }
+    background_tasks.add_task(tasks.render_clip_task, suggestion_id, quality, render_opts)
 
     return {"status": "approved", "message": f"Rendering started at {quality}"}
 

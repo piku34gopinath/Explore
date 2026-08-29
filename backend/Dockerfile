@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
     unzip \
+    fonts-dejavu \
+    fonts-noto \
+    fonts-noto-color-emoji \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 # Install deno — yt-dlp needs a JS runtime to solve YouTube's n-challenge
